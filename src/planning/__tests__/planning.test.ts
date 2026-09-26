@@ -11,7 +11,7 @@ import { DEFAULT_DETECTOR_OPTIONS } from '../../session/windowedDetector';
 import { exerciseCardsFor } from '../cards';
 import { DEFAULT_PRESCRIPTION, describePrescription, prescriptionFor, sessionConfigFor } from '../prescription';
 import { startingScope } from '../scope';
-import { decideProposal, dominantSplit, groupWorkouts, planExercise, proposalProgress, proposalSplit, SessionProposal, suggestionProgress, suggestionSplit, WorkoutSuggestion } from '../workout';
+import { decideProposal, dominantSplit, groupWorkouts, planExercise, proposalProgress, proposalSplit, SessionProposal, sessionProposal, suggestionProgress, suggestionSplit, validateProposal, WorkoutSuggestion } from '../workout';
 
 const armsFirst: UserProfile = { ...emptyProfile(), objective: 'get-bigger', regionPriorities: [{ regionId: 'arms', since: '2026-09-01' }] };
 
@@ -192,5 +192,70 @@ describe('objective → prescription: principle in place, mapping OPEN (no inven
     const noPriority: UserProfile = { ...armsFirst, regionPriorities: [] };
     expect(prescriptionFor(armsFirst.objective)).toEqual(prescriptionFor(noPriority.objective));
     expect(sessionConfigFor(prescriptionFor('get-bigger'))).toEqual(sessionConfigFor(DEFAULT_PRESCRIPTION));
+  });
+});
+
+describe('invariant: a SessionProposal contains each Exercise at most once', () => {
+  const plan = (...ids: string[]) => ids.map((id) => planExercise(id));
+
+  it('rejects the exact same exercise variant twice', () => {
+    const exercises = plan('lat_pulldown.machine.wide_overhand', 'seated_row.machine.neutral', 'lat_pulldown.machine.wide_overhand');
+    expect(validateProposal(catalogue, { exercises })).toEqual([expect.stringContaining('exercise lat_pulldown planned more than once')]);
+    expect(() => sessionProposal(catalogue, exercises)).toThrow(/invalid SessionProposal/);
+  });
+
+  it('rejects the same exercise on two different machines', () => {
+    const a = catalogue.variant('seated_row.machine.neutral');
+    const b = catalogue.variant('seated_row.cable.close_neutral');
+    expect(a.exerciseId).toBe(b.exerciseId);
+    expect(a.equipmentId).not.toBe(b.equipmentId);
+    const exercises = plan(a.id, b.id);
+    expect(validateProposal(catalogue, { exercises })).toHaveLength(1);
+    expect(() => sessionProposal(catalogue, exercises)).toThrow(/seated_row planned more than once/);
+  });
+
+  it('rejects the same exercise with two different variants (grips) on the same machine', () => {
+    const a = catalogue.variant('lat_pulldown.machine.wide_overhand');
+    const b = catalogue.variant('lat_pulldown.machine.close_neutral');
+    expect([a.exerciseId, a.equipmentId]).toEqual([b.exerciseId, b.equipmentId]);
+    expect(() => sessionProposal(catalogue, plan(a.id, b.id))).toThrow(/lat_pulldown planned more than once/);
+  });
+
+  it('accepts different exercises on the same machine', () => {
+    const a = catalogue.variant('chest_fly.pec_deck');
+    const b = catalogue.variant('reverse_fly.pec_deck');
+    expect(a.equipmentId).toBe(b.equipmentId);
+    expect(a.exerciseId).not.toBe(b.exerciseId);
+    const p = sessionProposal(catalogue, plan(a.id, b.id), 'today');
+    expect(validateProposal(catalogue, p)).toEqual([]);
+    expect(p).toEqual({ exercises: plan(a.id, b.id), decision: 'today' });
+  });
+
+  it('never deduplicates silently: progress on an invalid proposal is rejected, not half-matched', () => {
+    const invalid: SessionProposal = { exercises: plan('lat_pulldown.machine.wide_overhand', 'lat_pulldown.machine.underhand') };
+    const done = [entry('1', 'lat_pulldown.machine.wide_overhand', 't1')];
+    expect(() => proposalProgress(catalogue, invalid, done)).toThrow(/invalid SessionProposal/);
+    expect(invalid.exercises).toHaveLength(2);
+    expect(validateProposal(catalogue, { exercises: plan('no.such.variant') })).toEqual(['unknown variant no.such.variant']);
+  });
+
+  it('switching machine (and grip) at the gym still completes the planned exercise', () => {
+    const p = sessionProposal(catalogue, plan('seated_row.machine.neutral', 'lat_pulldown.machine.wide_overhand'));
+    const done = [entry('1', 'seated_row.cable.close_neutral', 't1'), entry('2', 'lat_pulldown.machine.underhand', 't2')];
+    const progress = proposalProgress(catalogue, p, done);
+    expect(progress.done).toEqual(p.exercises);
+    expect(progress.remaining).toEqual([]);
+    expect(progress.complete).toBe(true);
+  });
+
+  it('existing valid proposals behave as before through the checked constructor', () => {
+    const exercises = plan('lat_pulldown.machine.wide_overhand', 'seated_row.machine.neutral', 'reverse_fly.pec_deck', 'biceps_curl.cable.straight_bar');
+    const literal: SessionProposal = { exercises };
+    const built = sessionProposal(catalogue, exercises);
+    expect(built).toEqual(literal);
+    expect(proposalSplit(catalogue, built)).toBe('Pull');
+    const done = [entry('1', 'biceps_curl.cable.straight_bar', 't1'), entry('2', 'seated_row.cable.close_neutral', 't2')];
+    expect(proposalProgress(catalogue, built, done)).toEqual(suggestionProgress(catalogue, literal, done));
+    expect(proposalProgress(catalogue, built, done).remaining.map((x) => x.variantId)).toEqual(['lat_pulldown.machine.wide_overhand', 'reverse_fly.pec_deck']);
   });
 });

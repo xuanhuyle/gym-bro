@@ -30,9 +30,9 @@ src/memory/       pure training-memory layer: history entries from completed ses
                   queries for variant / machine / body-region / muscle memory, resume weight, session and
                   period comparisons, formatting; context.ts = remembered exercise context + machine switch. No React.
 src/profile/      pure UserProfile: confirmed onboarding fields; objective and body-region priorities kept separate.
-src/planning/     pure decision-layer scaffolding: Prescription (3 sets, final set intended AMRAP), starting scope
-                  (priority = ordering, never a filter), exercise cards, WorkoutSuggestion / PlannedExercise,
-                  implicit WorkoutSession grouping, derived PPL split. NO ranking algorithm yet.
+src/planning/     pure decision-layer scaffolding: Prescription (3 sets, final set intended AMRAP; prescriptionFor(objective)
+                  hook, mapping OPEN), starting scope (priority = ordering, never a filter), SessionProposal →
+                  PlannedExercise → ExerciseCard, implicit WorkoutSession grouping, derived PPL split. NO ranking yet.
 src/storage/      expo-file-system persistence (recording, session, weights, settings), export, import.
 src/ui/           screens + components; recorder.ts = recording lifecycle glue. App.tsx = route state machine.
 scripts/          Node CLIs: `npm run analyze -- file.json` (offline + live-session replay + HTML report), `npm run synth`.
@@ -64,6 +64,9 @@ recordings/       real recordings returned from the phone (raw data is precious:
 - Two card levels: a SessionProposal (session card) carries the today/later decision; its PlannedExercises render
   as ExerciseCards whose action is "this is the exercise I am doing now" (machine/load deltas). Never put
   today/later on individual exercises.
+- A SessionProposal contains each Exercise at most once (any machine/variant); `validateProposal` rejects
+  duplicates, never deduplicates. Progress matches at Exercise level so a machine switch still completes the
+  plan. Do not match progress on variantId; do not add planned-slot ids until the founder needs same-exercise-twice.
 - The objective influences the prescription (per-set targets); region priority never does. The exact mapping
   is OPEN: do not invent rep ranges, RIR, rest times or progression rules.
 - Changing machine switches to that machine's history; no kg carried over as comparable.

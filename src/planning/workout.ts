@@ -15,6 +15,10 @@
  *    workout" step. Its PPL classification is DERIVED from the exercises.
  *  - The user never supplies the split; it is derived. Accepted plans are not
  *    rigid: any order, skip, replace, add.
+ *  - INVARIANT (confirmed): a SessionProposal contains each EXERCISE at most
+ *    once — whatever machine or variant. Progress therefore matches at exercise
+ *    level, so a machine/variant switch at the gym still completes the planned
+ *    exercise. Same-exercise-twice is deferred (would need planned-slot identity).
  * No recommendation algorithm lives here (deliberately deferred).
  */
 
@@ -42,6 +46,42 @@ export interface SessionProposal {
 
 /** @deprecated former name of SessionProposal. */
 export type WorkoutSuggestion = SessionProposal;
+
+/**
+ * Problems with a proposal (empty = valid). Reports unknown variants and any
+ * Exercise planned more than once (different machines or variants included).
+ * Never deduplicates.
+ */
+export function validateProposal(cat: Catalogue, p: SessionProposal): string[] {
+  const problems: string[] = [];
+  const byExercise = new Map<string, string[]>();
+  for (const e of p.exercises) {
+    let exerciseId: string;
+    try {
+      exerciseId = cat.variant(e.variantId).exerciseId;
+    } catch {
+      problems.push(`unknown variant ${e.variantId}`);
+      continue;
+    }
+    byExercise.set(exerciseId, [...(byExercise.get(exerciseId) ?? []), e.variantId]);
+  }
+  for (const [exerciseId, variantIds] of byExercise) {
+    if (variantIds.length > 1) problems.push(`exercise ${exerciseId} planned more than once (${variantIds.join(', ')})`);
+  }
+  return problems;
+}
+
+function assertValidProposal(cat: Catalogue, p: SessionProposal): void {
+  const problems = validateProposal(cat, p);
+  if (problems.length) throw new Error(`invalid SessionProposal: ${problems.join('; ')}`);
+}
+
+/** Checked constructor: throws (never deduplicates) when the proposal is invalid. */
+export function sessionProposal(cat: Catalogue, exercises: PlannedExercise[], decision?: ProposalDecision): SessionProposal {
+  const p: SessionProposal = decision ? { exercises, decision } : { exercises };
+  assertValidProposal(cat, p);
+  return p;
+}
 
 export function decideProposal(p: SessionProposal, decision: ProposalDecision): SessionProposal {
   return { ...p, decision };
@@ -72,9 +112,12 @@ export const suggestionSplit = proposalSplit;
 /**
  * Progress of an accepted session proposal given what was actually completed since it started.
  * A planned exercise counts as done when the same EXERCISE was completed (the
- * machine may have changed because the planned one was occupied).
+ * machine may have changed because the planned one was occupied). This is
+ * unambiguous only because a proposal holds each exercise once: invalid
+ * proposals are rejected (throws) rather than half-matched.
  */
 export function proposalProgress(cat: Catalogue, s: SessionProposal, completed: TrainingEntry[]): { done: PlannedExercise[]; remaining: PlannedExercise[]; complete: boolean } {
+  assertValidProposal(cat, s);
   const doneExercises = new Set(completed.map((e) => e.exerciseId));
   const done = s.exercises.filter((p) => doneExercises.has(cat.variant(p.variantId).exerciseId));
   const remaining = s.exercises.filter((p) => !done.includes(p));

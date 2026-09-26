@@ -49,9 +49,13 @@ The authoritative design is PRODUCT_DESIGN.md. This file says how much of it exi
   session records and driving the set count); `prescriptionFor(objective)` hook (returns the default for every
   objective — mapping OPEN); `startingScope` (priority regions first, whole ontology still eligible);
   **`SessionProposal` → `PlannedExercise[]` → `ExerciseCard`** (`exerciseCardsFor`), today/later
-  `ProposalDecision` on the proposal only, derived split and flexible progress (`WorkoutSuggestion` kept as an
+  `ProposalDecision` on the proposal only, **each Exercise at most once per proposal** (`validateProposal` /
+  `sessionProposal`; invalid proposals rejected, progress still matches at exercise level so machine switches
+  count), derived split and flexible progress (`WorkoutSuggestion` kept as an
   alias); implicit `WorkoutSession` grouping with derived split/regions (provisional 90-min gap).
 - Starting an exercise no longer requires a body region (derived from the exercise for cards/suggestions).
+
+Planning layer status: **frozen** as the product-design baseline, pending real gym validation.
 
 ## B. Product-design target (documented, not built)
 - Day-1 onboarding screens (year of birth, height, weight, objective, priority regions) and profile storage.
@@ -82,7 +86,7 @@ recommendations, objective-specific "science", new DSP rules, automatic exercise
 large dashboards, swipe gesture system (until usability testing).
 
 ## Tested
-- `npm run check`: typecheck + **176 Jest tests** pass (all previous tests kept; see TESTS.md).
+- `npm run check`: typecheck + **183 Jest tests** pass (all previous tests kept; see TESTS.md).
 - iOS JS bundle builds (`expo export --platform ios`).
 - Founder: app runs on a real iPhone, DeviceMotion ≈ 100 Hz (no stack yet).
 

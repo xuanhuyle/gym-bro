@@ -99,7 +99,15 @@ Last: 12 / 11 / 9
 
 Domain structure: **`SessionProposal`** (a.k.a. WorkoutSuggestion) **→ contains `PlannedExercise[]` → each can
 be rendered as an `ExerciseCard`.** The today/later `ProposalDecision` lives on the proposal; exercise cards have
-no today/later field. Concept: *Gym Bro proposes a compact session built from remembered contexts; the user
+no today/later field.
+
+**CONFIRMED rule — each Exercise at most once per proposal.** A SessionProposal contains each Exercise at most
+once (whatever machine or variant). Machine/variant may change at execution time without changing
+planned-exercise completion (completion matches the Exercise). Same-exercise-twice scenarios are deferred until
+there is a real product need; planned-slot identity would be introduced then. Invalid proposals are rejected,
+never silently deduplicated (`validateProposal` / `sessionProposal` in `src/planning/workout.ts`).
+
+Concept: *Gym Bro proposes a compact session built from remembered contexts; the user
 accepts it and then says which exercise they are doing now.*
 
 ## 7. Machine availability (CONFIRMED)
@@ -209,7 +217,7 @@ real weight-stack recordings.
 | Remembered context, machine switch (RESUME) | `src/memory/context.ts` |
 | Profile (objective ≠ region priority) | `src/profile/profile.ts` |
 | Prescription + objective hook (`prescriptionFor`) | `src/planning/prescription.ts` |
-| Session proposal → planned exercises (`SessionProposal`, `ProposalDecision`, `PlannedExercise`), implicit workouts | `src/planning/workout.ts` |
+| Session proposal → planned exercises (`SessionProposal`, `ProposalDecision`, `PlannedExercise`, one-Exercise-once invariant `validateProposal` / `sessionProposal`), implicit workouts | `src/planning/workout.ts` |
 | Exercise cards (`ExerciseCard`, `exerciseCardsFor(proposal)`) | `src/planning/cards.ts` |
 | Starting scope (region priority, never a filter) | `src/planning/scope.ts` |
 | Capture state machine | `src/session/machine.ts` (+ adapters) |
