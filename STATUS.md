@@ -46,15 +46,18 @@ The authoritative design is PRODUCT_DESIGN.md. This file says how much of it exi
 ### A4. Design scaffolding (pure, tested, not yet in the UI)
 - `src/profile/`: UserProfile with the confirmed onboarding fields; objective and region priorities separate.
 - `src/planning/`: `Prescription` (default 3 sets, final set intended to failure — intent only, stored on new
-  session records and driving the set count); `startingScope` (priority regions first, whole ontology still
-  eligible); `ExerciseCard`; `WorkoutSuggestion` / `PlannedExercise` with derived split and flexible progress;
-  implicit `WorkoutSession` grouping with derived split/regions (provisional 90-min gap).
+  session records and driving the set count); `prescriptionFor(objective)` hook (returns the default for every
+  objective — mapping OPEN); `startingScope` (priority regions first, whole ontology still eligible);
+  **`SessionProposal` → `PlannedExercise[]` → `ExerciseCard`** (`exerciseCardsFor`), today/later
+  `ProposalDecision` on the proposal only, derived split and flexible progress (`WorkoutSuggestion` kept as an
+  alias); implicit `WorkoutSession` grouping with derived split/regions (provisional 90-min gap).
 - Starting an exercise no longer requires a body region (derived from the exercise for cards/suggestions).
 
 ## B. Product-design target (documented, not built)
 - Day-1 onboarding screens (year of birth, height, weight, objective, priority regions) and profile storage.
-- Suggested-session cards ("Suggested today: PULL") driven by objective, priorities, PPL balance and history;
-  today vs later classification; the decision/ranking layer itself.
+- Session proposal cards ("PULL · ~45 min") driven by objective, priorities, PPL balance and history, with the
+  today/later decision per session (gesture OPEN); the decision/ranking layer itself.
+- Objective-specific prescription targets (mapping OPEN; hook in place).
 - Session view: TODAY list with ✓ done / Next, skip / replace / add; automatic return to it after EXERCISE
   COMPLETE; SESSION COMPLETE summary (split, duration, exercises, sets); inactivity fallback.
 - Machine identity at gym/brand level (e.g. Technogym vs Matrix) — equipment is a generic type today.
@@ -79,7 +82,7 @@ recommendations, objective-specific "science", new DSP rules, automatic exercise
 large dashboards, swipe gesture system (until usability testing).
 
 ## Tested
-- `npm run check`: typecheck + **171 Jest tests** pass (all previous tests kept; see TESTS.md).
+- `npm run check`: typecheck + **176 Jest tests** pass (all previous tests kept; see TESTS.md).
 - iOS JS bundle builds (`expo export --platform ios`).
 - Founder: app runs on a real iPhone, DeviceMotion ≈ 100 Hz (no stack yet).
 

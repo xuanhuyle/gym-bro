@@ -61,6 +61,11 @@ recordings/       real recordings returned from the phone (raw data is precious:
   achieved from sensor data.
 - Workouts are implicit (formed by exercises done together); no mandatory "create/finish workout".
 - Suggestions are suggestions: plans stay editable (order, skip, replace, add).
+- Two card levels: a SessionProposal (session card) carries the today/later decision; its PlannedExercises render
+  as ExerciseCards whose action is "this is the exercise I am doing now" (machine/load deltas). Never put
+  today/later on individual exercises.
+- The objective influences the prescription (per-set targets); region priority never does. The exact mapping
+  is OPEN: do not invent rep ranges, RIR, rest times or progression rules.
 - Changing machine switches to that machine's history; no kg carried over as comparable.
 - Keep CONFIRMED decisions and OPEN questions distinct; do not turn an open question into a rule without the
   founder's decision (list in PRODUCT_DESIGN.md §14).

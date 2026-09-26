@@ -8,9 +8,10 @@ import { emptyProfile, OBJECTIVES, UserProfile, validateProfile } from '../../pr
 import { createSession } from '../../session/machine';
 import { makeSelection, newSessionRecord } from '../../session/record';
 import { DEFAULT_DETECTOR_OPTIONS } from '../../session/windowedDetector';
-import { DEFAULT_PRESCRIPTION, describePrescription, sessionConfigFor } from '../prescription';
+import { exerciseCardsFor } from '../cards';
+import { DEFAULT_PRESCRIPTION, describePrescription, prescriptionFor, sessionConfigFor } from '../prescription';
 import { startingScope } from '../scope';
-import { dominantSplit, groupWorkouts, planExercise, suggestionProgress, suggestionSplit, WorkoutSuggestion } from '../workout';
+import { decideProposal, dominantSplit, groupWorkouts, planExercise, proposalProgress, proposalSplit, SessionProposal, suggestionProgress, suggestionSplit, WorkoutSuggestion } from '../workout';
 
 const armsFirst: UserProfile = { ...emptyProfile(), objective: 'get-bigger', regionPriorities: [{ regionId: 'arms', since: '2026-09-01' }] };
 
@@ -132,5 +133,64 @@ describe('suggestions and implicit workouts: the user never supplies PPL', () =>
       ['Push', 2, 6],
       ['Legs', 1, 3],
     ]);
+  });
+});
+
+describe('two card levels: SessionProposal → PlannedExercise → ExerciseCard', () => {
+  const pull: SessionProposal = {
+    exercises: [
+      planExercise('lat_pulldown.machine.wide_overhand'),
+      planExercise('seated_row.cable.close_neutral'),
+      planExercise('biceps_curl.cable.straight_bar', { sets: 4, finalSetIntent: 'normal' }),
+    ],
+  };
+  const now = new Date('2026-09-26T18:00:00Z');
+
+  it('today/later is decided on the whole proposal, not on individual exercises', () => {
+    expect(pull.decision).toBeUndefined();
+    const accepted = decideProposal(pull, 'today');
+    const postponed = decideProposal(pull, 'later');
+    expect(accepted.decision).toBe('today');
+    expect(postponed.decision).toBe('later');
+    expect(pull.decision).toBeUndefined(); // pure
+    for (const p of accepted.exercises) expect(Object.keys(p).sort()).toEqual(['prescription', 'variantId']);
+    expect(accepted.exercises).toBe(pull.exercises);
+  });
+
+  it('each planned exercise of an accepted proposal renders as an exercise card (remembered context, own prescription)', () => {
+    const history = [entry('1', 'lat_pulldown.machine.wide_overhand', '2026-09-19T18:00:00Z', [12, 11, 9])];
+    const cards = exerciseCardsFor(decideProposal(pull, 'today'), history, catalogue, null, now);
+    expect(cards.map((c) => c.variantId)).toEqual(pull.exercises.map((p) => p.variantId));
+    expect(cards[0].last?.reps).toEqual([12, 11, 9]);
+    expect(cards[0].load).not.toBeNull();
+    expect(cards[1].last).toBeNull();
+    expect(cards[2].prescription).toEqual({ sets: 4, finalSetIntent: 'normal' });
+    for (const c of cards) expect(c).not.toHaveProperty('decision');
+  });
+
+  it('the split of a proposal is derived; old names remain aliases', () => {
+    expect(proposalSplit(catalogue, pull)).toBe('Pull');
+    const legacy: WorkoutSuggestion = pull;
+    expect(suggestionSplit(catalogue, legacy)).toBe(proposalSplit(catalogue, pull));
+    const done = [entry('1', 'seated_row.cable.close_neutral', 't1')];
+    expect(suggestionProgress(catalogue, legacy, done)).toEqual(proposalProgress(catalogue, pull, done));
+  });
+});
+
+describe('objective → prescription: principle in place, mapping OPEN (no invented rules)', () => {
+  it('takes the objective only and, until decided, yields the default structure for every objective', () => {
+    for (const o of [...OBJECTIVES.map((x) => x.id), null]) {
+      const p = prescriptionFor(o);
+      expect({ sets: p.sets, finalSetIntent: p.finalSetIntent }).toEqual(DEFAULT_PRESCRIPTION);
+      expect(p.objective).toBe(o);
+      expect(Object.keys(p).sort()).toEqual(['finalSetIntent', 'objective', 'sets']); // no rep ranges, RIR, rests
+    }
+    expect(prescriptionFor.length).toBe(1); // body-region priority is not an input
+  });
+
+  it('region priority does not change the prescription (it scopes selection instead)', () => {
+    const noPriority: UserProfile = { ...armsFirst, regionPriorities: [] };
+    expect(prescriptionFor(armsFirst.objective)).toEqual(prescriptionFor(noPriority.objective));
+    expect(sessionConfigFor(prescriptionFor('get-bigger'))).toEqual(sessionConfigFor(DEFAULT_PRESCRIPTION));
   });
 });

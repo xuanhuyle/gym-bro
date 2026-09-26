@@ -1,7 +1,10 @@
 /**
- * Exercise cards: the compact remembered context the mature product proposes
- * (flashcards). Built from memory; everything else (muscles, region, split) is
- * derived. No ranking here — which cards to show is the (deferred) decision layer.
+ * Exercise cards: the second card level. Once a SessionProposal is accepted,
+ * each PlannedExercise is rendered as an ExerciseCard. Principal action:
+ * "this is the exercise I am doing now" (arms capture). Editable deltas:
+ * machine (if different/unavailable) and load. No today/later decision here —
+ * that belongs to the session proposal. Built from memory; muscles, region and
+ * split are derived. No ranking here (deferred decision layer).
  */
 
 import { Catalogue } from '../catalogue/catalogue';
@@ -9,6 +12,7 @@ import { WeightBook } from '../catalogue/weightMemory';
 import { TrainingEntry } from '../memory/history';
 import { ResumeWeight, resumeWeight, variantMemory } from '../memory/queries';
 import { DEFAULT_PRESCRIPTION, Prescription } from './prescription';
+import { SessionProposal } from './workout';
 
 export interface ExerciseCard {
   variantId: string;
@@ -35,4 +39,9 @@ export function buildExerciseCard(history: TrainingEntry[], cat: Catalogue, book
     previous: m.previous,
     prescription,
   };
+}
+
+/** Accepted proposal → its exercises as cards (order preserved; the user may still do them in any order). */
+export function exerciseCardsFor(proposal: SessionProposal, history: TrainingEntry[], cat: Catalogue, book: WeightBook | null, now: Date): ExerciseCard[] {
+  return proposal.exercises.map((p) => buildExerciseCard(history, cat, book, p.variantId, now, p.prescription));
 }

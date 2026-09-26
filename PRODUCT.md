@@ -41,7 +41,8 @@ canonical; see PRODUCT_DESIGN.md §10.)
 - **Gate 1 — daily memory loop**: robustness across machines, tempos, mounts; cards restore remembered context;
   cheap machine switch; corrections; measure *context effort per exercise* (target ≈ one action).
 - **Gate 2 — onboarding & suggested sessions v1**: confirmed onboarding fields, objective vs region priority,
-  PPL-balanced session suggestions as cards (simple, explainable rules; no ML), implicit workouts and
+  PPL-balanced session proposal cards (today/later per session) whose exercises become exercise cards
+  (simple, explainable rules; no ML), implicit workouts and
   session-complete summaries.
 - **Gate 3 — understand**: period/session vs previous comparable period/session per variant, machine, region
   and muscle (direct vs contributing). Facts, no scores.

@@ -66,22 +66,41 @@ CONTEXT_SELECTED → ARMED → STABLE/WAITING → ACTIVE_SET → REST → ACTIVE
 - The app stores the *intent* ("final set intended to failure"). It must **never claim physiological failure
   was achieved** because movement stopped.
 - The model must allow other structures later (`Prescription` in `src/planning/prescription.ts`).
-- OPEN: objective-specific prescription rules.
+- **CONFIRMED principle: the objective influences per-set targets / the prescription.** The default structure
+  (3 sets, final set AMRAP) stays; the objective determines what the target for the earlier sets means.
+- **OPEN: the exact mapping** from *Get bigger* / *Keep in shape* to rep targets, effort targets, rests and
+  progression. No rep ranges, RIR, rest times or physiological rules are defined until the founder decides.
+  In code, `prescriptionFor(objective)` exists as the hook and returns the default structure for every objective.
+- Body-region priority is **not** an input to the prescription (see §9): it scopes initial engagement and biases
+  exercise selection.
 
-## 6. Mature session interaction: exercise cards (CONFIRMED concept, OPEN gesture)
-- Subsequent sessions are proposed as **cards** of remembered or recommended exercises; the user should not
-  browse the catalogue repeatedly. Example (Home):
-  ```
-  Suggested today: PULL
-  [ Lat Pulldown ]  Technogym · 40 kg · Last: 12 / 11 / 9
-  [ Seated Row ]    Matrix · 45 kg · Last: 11 / 10 / 9
-  [ Biceps Curl ]   Cable · 20 kg · Last: 12 / 12 / 10
-  ```
-- The user classifies cards roughly as **today/selected** vs **later/not now**. Concept: *Gym Bro proposes
-  compact remembered contexts; the user selects what they are actually doing.*
-- A selected card restores: last machine, last load, last performance, previous comparable performance,
-  default prescription. The user normally adjusts only `Machine [▾]` and `Weight [– 40 kg +]`.
-- OPEN: the exact swipe/gesture. Do not build a Tinder-like gesture system before usability testing.
+## 6. Mature session interaction: session proposal cards vs exercise cards (CONFIRMED concept, OPEN gesture)
+There are **two card levels**. Never conflate them.
+
+**A. Session proposal card** (a proposed workout/session, several exercises):
+```
+PULL · ~45 min
+Lat Pulldown · Seated Row · Biceps Curl · Rear Delt Fly
+```
+- The main decision is taken **here**: **TODAY / ACCEPT** vs **LATER / NOT NOW**.
+- *Today/later is primarily a session-level decision, not a classification of individual exercises.*
+- OPEN: the exact interaction (tap vs swipe). Do not build a Tinder-like gesture system before usability testing.
+
+**B. Exercise card** (after the session proposal is accepted; one per exercise):
+```
+LAT PULLDOWN
+Technogym · 40 kg
+Last: 12 / 11 / 9
+```
+- Principal action: **"This is the exercise I am doing now."** Selecting it **arms capture** (§4).
+- Editable deltas only: **machine** (if different/unavailable, §7) and **load** (if different).
+- It restores last machine, last load, last performance, previous comparable performance, and the prescription.
+- The accepted session stays flexible: reorder, skip, replace, add exercises (§8).
+
+Domain structure: **`SessionProposal`** (a.k.a. WorkoutSuggestion) **→ contains `PlannedExercise[]` → each can
+be rendered as an `ExerciseCard`.** The today/later `ProposalDecision` lives on the proposal; exercise cards have
+no today/later field. Concept: *Gym Bro proposes a compact session built from remembered contexts; the user
+accepts it and then says which exercise they are doing now.*
 
 ## 7. Machine availability (CONFIRMED)
 - Changing machine must be **cheap** (the suggested one may be occupied).
@@ -89,12 +108,13 @@ CONTEXT_SELECTED → ARMED → STABLE/WAITING → ACTIVE_SET → REST → ACTIVE
   machine must **not** be presented as comparable.
 
 ## 8. Suggested sessions, sequencing, workouts (CONFIRMED principles)
-- Gym Bro eventually proposes a set of exercise cards for the next session, combining: objective, body-region
-  priorities, PPL balance, previous sessions, recency, exercise history, preferences inferred from usage.
-  Recommendations are **suggestions, never mandatory**.
+- Gym Bro eventually proposes **session proposals** (§6 A) for the next session, combining: objective,
+  body-region priorities, PPL balance, previous sessions, recency, exercise history, preferences inferred from
+  usage. Recommendations are **suggestions, never mandatory**; the user accepts a session (today) or defers it
+  (later), then picks exercise cards (§6 B) inside it.
 - The **week stays broadly balanced around Push / Pull / Legs**. PPL is a planning structure the user never
   declares. Example reasoning: after Push → Pull → Push with no recent Legs, surface a Legs session.
-- Accepted session shown together (`TODAY — PULL: 1. Lat Pulldown 2. Seated Row …`); after each exercise,
+- Accepted session shown together as exercise cards (`TODAY — PULL: 1. Lat Pulldown 2. Seated Row …`); after each exercise,
   mark it done and show **Next**. The plan is **not rigid**: choose another first, skip, replace, add.
 - **Workouts are implicit**: no "create workout" step. A workout begins when the first selected exercise is
   actually performed; exercises done together form it; its dominant PPL split is derived.
@@ -112,6 +132,9 @@ CONTEXT_SELECTED → ARMED → STABLE/WAITING → ACTIVE_SET → REST → ACTIVE
   set of arm exercises, but future workouts are not arms-only; balanced Push/Pull/Legs stays relevant.
 - The targeted region is therefore both an **onboarding scope reducer** and a **continuing preference
   signal**, combined with actual history over time.
+- Division of labour: **the objective governs the prescription (per-set targets, §5) and the overall
+  strategy; the region priority scopes initial engagement and biases exercise selection.** The region priority
+  never changes the prescription; the objective never filters exercises.
 
 ## 10. Canonical ontology vs decision layer (CONFIRMED)
 - **One canonical ontology of stable facts** — never separate ontologies per Objective × Region:
@@ -166,8 +189,9 @@ real weight-stack recordings.
 
 ## 14. OPEN design questions (need founder decisions)
 1. Onboarding fields beyond the confirmed five.
-2. Objective-specific prescription rules (sets, rep ranges, rest targets) — if any.
-3. Exact card interaction (tap vs swipe; how "later / not now" is captured and used).
+2. Exact objective → prescription mapping (*Get bigger* / *Keep in shape* → rep targets, effort targets, rests,
+   progression). The principle that the objective influences per-set targets is CONFIRMED (§5).
+3. Exact session-proposal interaction (tap vs swipe; how "later / not now" on a session is captured and used).
 4. Recommendation ranking formula and how history, priorities and PPL balance are weighted.
 5. Inactivity timeout that closes an implicit workout (code currently uses a provisional 90 min gap).
 6. When and how suggestions expand beyond the initial body-region focus.
@@ -184,5 +208,8 @@ real weight-stack recordings.
 | Memory (REMEMBER/COMPARE) | `src/memory/history.ts`, `queries.ts` |
 | Remembered context, machine switch (RESUME) | `src/memory/context.ts` |
 | Profile (objective ≠ region priority) | `src/profile/profile.ts` |
-| Prescription, scope, cards, suggestions, implicit workouts | `src/planning/` |
+| Prescription + objective hook (`prescriptionFor`) | `src/planning/prescription.ts` |
+| Session proposal → planned exercises (`SessionProposal`, `ProposalDecision`, `PlannedExercise`), implicit workouts | `src/planning/workout.ts` |
+| Exercise cards (`ExerciseCard`, `exerciseCardsFor(proposal)`) | `src/planning/cards.ts` |
+| Starting scope (region priority, never a filter) | `src/planning/scope.ts` |
 | Capture state machine | `src/session/machine.ts` (+ adapters) |
