@@ -1,9 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import { catalogue } from '../../catalogue/catalogue';
+import { TrainingEntry } from '../../memory/history';
+import { recentVariants } from '../../memory/queries';
 import { contextLabel } from '../../recording/schema';
 import { summarize } from '../../session/machine';
 import { importRecording, listRecordings, RecordingListItem } from '../../storage/recordingStore';
 import { Button, Card, colors, styles } from '../components/common';
+import { RecentVariantRow } from '../components/Memory';
 
 function SessionLine({ item }: { item: RecordingListItem }) {
   const s = item.session!;
@@ -27,8 +31,16 @@ function SessionLine({ item }: { item: RecordingListItem }) {
   );
 }
 
-export function HomeScreen(props: { onNew: () => void; onOpen: (id: string) => void; devMode?: boolean; onDevMode?: (v: boolean) => void; onRawRecording?: () => void }) {
+export function HomeScreen(props: {
+  onNew: () => void;
+  onOpen: (id: string) => void;
+  /** Completed-session history, for the quick "Recent" reopen list. */
+  history?: TrainingEntry[];
+  onResume?: (sel: { regionId: string; variantId: string }) => void;
+  devMode?: boolean; onDevMode?: (v: boolean) => void; onRawRecording?: () => void }) {
   const [items, setItems] = useState<RecordingListItem[]>([]);
+  const now = new Date();
+  const recent = recentVariants(props.history ?? [], 5);
   const refresh = useCallback(() => {
     try {
       setItems(listRecordings());
@@ -50,8 +62,20 @@ export function HomeScreen(props: { onNew: () => void; onOpen: (id: string) => v
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <Text style={styles.h1}>Gym Bro</Text>
-      <Text style={[styles.muted, { marginBottom: 16 }]}>Choose the exercise, strap the phone to the weight stack, press start once. Sets and rests are captured automatically.</Text>
-      <Button title="Start exercise" onPress={props.onNew} big />
+      <Text style={[styles.muted, { marginBottom: 16 }]}>Your training memory: what you did on every exercise and machine, ready when you come back to it.</Text>
+      {recent.length && props.onResume ? (
+        <>
+          <Text style={styles.h2}>Continue where you left off</Text>
+          {recent.map((e) => (
+            <Pressable key={e.variantId} accessibilityRole="button" onPress={() => props.onResume!({ regionId: e.regionId, variantId: e.variantId })}>
+              <Card>
+                <RecentVariantRow entry={e} cat={catalogue} now={now} />
+              </Card>
+            </Pressable>
+          ))}
+        </>
+      ) : null}
+      <Button title={recent.length ? 'Other exercise' : 'Start exercise'} onPress={props.onNew} big />
       {props.devMode ? (
         <Card title="Developer" style={{ marginTop: 12 }}>
           <Button title="Raw recording (free text, manual stop)" kind="secondary" onPress={() => props.onRawRecording?.()} />

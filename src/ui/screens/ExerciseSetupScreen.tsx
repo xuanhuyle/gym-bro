@@ -1,11 +1,16 @@
 /**
  * Semantic exercise selection: Body region → Exercise → Machine → Variant →
- * muscle preview → Weight → START EXERCISE. All lists come from the catalogue.
+ * LAST TIME / PREVIOUS → Weight (resumed from memory) → muscles → START.
+ * All lists come from the catalogue; all recall comes from the memory layer,
+ * shown as soon as enough context is selected.
  */
 import React, { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, View } from 'react-native';
 import { Catalogue, catalogue as defaultCatalogue } from '../../catalogue/catalogue';
-import { lastWeight, WeightBook } from '../../catalogue/weightMemory';
+import { WeightBook } from '../../catalogue/weightMemory';
+import { TrainingEntry } from '../../memory/history';
+import { machineMemory, regionMemory, resumeWeight, variantMemory } from '../../memory/queries';
+import { MachineMemoryLine, RegionMemoryLine, VariantMemoryCard, WeightMemoryHint } from '../components/Memory';
 import { Button, Card, Chips, colors, styles } from '../components/common';
 
 export interface ExerciseChoice {
@@ -40,32 +45,36 @@ export function ExerciseSetupScreen(props: {
   onCancel: () => void;
   catalogue?: Catalogue;
   initial?: { regionId: string; variantId: string } | null;
+  /** Completed-session history (chronological). */
+  history?: TrainingEntry[];
+  now?: Date;
 }) {
   const cat = props.catalogue ?? defaultCatalogue;
+  const history = props.history ?? [];
+  const now = props.now ?? new Date();
   const init = props.initial ? cat.variant(props.initial.variantId) : null;
   const [regionId, setRegionId] = useState<string | null>(props.initial?.regionId ?? null);
   const [exerciseId, setExerciseId] = useState<string | null>(init?.exerciseId ?? null);
   const [equipmentId, setEquipmentId] = useState<string | null>(init?.equipmentId ?? null);
   const [variantId, setVariantId] = useState<string | null>(init?.id ?? null);
   const [weightText, setWeightText] = useState<string>(() => {
-    const w = init ? lastWeight(props.weights, init) : null;
+    const w = init ? resumeWeight(history, props.weights, init) : null;
     return w ? String(w.kg) : '';
   });
-  const [weightHint, setWeightHint] = useState<string | null>(null);
+  const [weightEdited, setWeightEdited] = useState(false);
 
   const exercises = regionId ? cat.exercisesForRegion(regionId) : [];
   const equipment = exerciseId ? cat.equipmentForExercise(exerciseId) : [];
   const variants = exerciseId && equipmentId ? cat.variantsFor(exerciseId, equipmentId) : [];
   const muscles = useMemo(() => (variantId ? cat.musclesForVariant(variantId) : null), [cat, variantId]);
+  const resume = variantId ? resumeWeight(history, props.weights, cat.variant(variantId)) : null;
 
   const chooseVariant = (id: string | null) => {
     setVariantId(id);
+    setWeightEdited(false);
     if (!id) return;
-    const w = lastWeight(props.weights, cat.variant(id));
-    if (w) {
-      setWeightText(String(w.kg));
-      setWeightHint(w.exact ? 'Last time you used this weight.' : 'Weight from the last time on this machine (other variant).');
-    } else setWeightHint(null);
+    const w = resumeWeight(history, props.weights, cat.variant(id));
+    setWeightText(w ? String(w.kg) : '');
   };
   const chooseEquipment = (id: string) => {
     setEquipmentId(id);
@@ -93,7 +102,10 @@ export function ExerciseSetupScreen(props: {
 
   const kg = Number(weightText.replace(',', '.'));
   const weightOk = weightText.trim() !== '' && Number.isFinite(kg) && kg >= 0;
-  const bump = (d: number) => setWeightText(String(Math.max(0, Math.round(((weightOk ? kg : 0) + d) * 10) / 10)));
+  const bump = (d: number) => {
+    setWeightEdited(true);
+    setWeightText(String(Math.max(0, Math.round(((weightOk ? kg : 0) + d) * 10) / 10)));
+  };
   const ready = !!(regionId && variantId && weightOk);
   const hasNamedVariants = variants.some((v) => v.variantName);
 
@@ -103,6 +115,7 @@ export function ExerciseSetupScreen(props: {
         <Text style={styles.h1}>New exercise</Text>
         <Step n={1} title="Body region">
           <Picker items={cat.bodyRegions()} label={(r) => r.name} value={regionId} onChange={chooseRegion} />
+          {regionId ? <RegionMemoryLine memory={regionMemory(history, cat, regionId, now)} name={cat.region(regionId).name} now={now} /> : null}
         </Step>
         {regionId ? (
           <Step n={2} title="Exercise">
@@ -112,12 +125,38 @@ export function ExerciseSetupScreen(props: {
         {exerciseId ? (
           <Step n={3} title="Machine / equipment">
             <Picker items={equipment} label={(m) => m.name} value={equipmentId} onChange={chooseEquipment} />
+            {equipmentId ? <MachineMemoryLine memory={machineMemory(history, equipmentId)} currentVariantId={variantId} now={now} /> : null}
           </Step>
         ) : null}
         {equipmentId && hasNamedVariants ? (
           <Step n={4} title="Variant">
             <Picker items={variants} label={(v) => v.variantName ?? 'Standard'} value={variantId} onChange={chooseVariant} />
           </Step>
+        ) : null}
+        {variantId ? <VariantMemoryCard memory={variantMemory(history, variantId, now)} now={now} /> : null}
+        {variantId ? (
+          <Card title="Weight">
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Button title={`−${WEIGHT_STEP}`} kind="secondary" onPress={() => bump(-WEIGHT_STEP)} />
+              <TextInput
+                accessibilityLabel="Weight in kg"
+                value={weightText}
+                onChangeText={(t) => {
+                  setWeightText(t);
+                  setWeightEdited(true);
+                }}
+                keyboardType="decimal-pad"
+                placeholder="kg"
+                style={[styles.input, { width: 100, fontSize: 24, textAlign: 'center' }]}
+              />
+              <Text style={styles.body}>kg</Text>
+              <Button title={`+${WEIGHT_STEP}`} kind="secondary" onPress={() => bump(WEIGHT_STEP)} />
+            </View>
+            <View style={{ marginTop: 6 }}>
+              <WeightMemoryHint resume={resume} now={now} />
+              {weightEdited && resume ? <Text style={styles.muted}>Changed from the remembered {resume.kg} kg.</Text> : null}
+            </View>
+          </Card>
         ) : null}
         {muscles ? (
           <Card title="Muscles worked">
@@ -129,27 +168,6 @@ export function ExerciseSetupScreen(props: {
                 <Text style={styles.body}>{muscles.secondary.map((m) => m.name).join(', ')}</Text>
               </>
             ) : null}
-          </Card>
-        ) : null}
-        {variantId ? (
-          <Card title="Weight">
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Button title={`−${WEIGHT_STEP}`} kind="secondary" onPress={() => bump(-WEIGHT_STEP)} />
-              <TextInput
-                accessibilityLabel="Weight in kg"
-                value={weightText}
-                onChangeText={(t) => {
-                  setWeightText(t);
-                  setWeightHint(null);
-                }}
-                keyboardType="decimal-pad"
-                placeholder="kg"
-                style={[styles.input, { width: 100, fontSize: 24, textAlign: 'center' }]}
-              />
-              <Text style={styles.body}>kg</Text>
-              <Button title={`+${WEIGHT_STEP}`} kind="secondary" onPress={() => bump(WEIGHT_STEP)} />
-            </View>
-            {weightHint ? <Text style={[styles.muted, { marginTop: 6 }]}>{weightHint}</Text> : null}
           </Card>
         ) : null}
         {ready ? (

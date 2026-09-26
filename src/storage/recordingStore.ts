@@ -14,6 +14,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import { emptyWeightBook, parseWeightBook, WeightBook } from '../catalogue/weightMemory';
+import { buildHistory, TrainingEntry } from '../memory/history';
 import { ExerciseSessionRecord, parseSessionRecord } from '../session/record';
 import {
   csvHeader,
@@ -115,6 +116,13 @@ export function loadSession(id: string): ExerciseSessionRecord | null {
   } catch {
     return null;
   }
+}
+
+// ---- training memory ----
+
+/** Completed sessions (with the user's corrections) as chronological history. */
+export function loadHistory(): TrainingEntry[] {
+  return buildHistory(listRecordings().flatMap((i) => (i.session ? [{ session: i.session, userReported: i.meta.userReported }] : [])));
 }
 
 // ---- last-used weight per exercise variant ----

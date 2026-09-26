@@ -15,9 +15,10 @@ Two kinds of evidence, never to be confused:
 | `src/catalogue/__tests__/weightMemory.test.ts` | Last weight per variant, persistence round trip, fallback to same exercise+machine (flagged not exact), invalid input |
 | `src/session/__tests__/machine.test.ts` | Scripted rep events: 10 reps → inactivity → REST only after confirmation; rest measured from last rep end (not confirmation); REST → coherent sequence → Set 2 with its first rep; isolated movement (and two far-apart bumps) never start a set; revoked rest; 3 sets → COMPLETE with correct sets/reps/rests; final-set longer confirmation; late reps ignored; 5-set configuration; manual finish; rest timeout; serialise/reload mid-rest continues identically; duplicate reps; config validation; reducer purity |
 | `src/session/__tests__/replay.test.ts` | Synthetic 100 Hz recordings through the live path (windowed engine + state machine, 2 s chunks): noisy 10/12/15 × 6 seeds → exact sets, rests ±1.5 s, COMPLETE; 8/5/14 with 35/60 s rests; handling/knocks only → no set |
-| `src/ui/__tests__/screens.test.tsx` | Screens with mocked storage/sensors: review screen shows detection, saves truth, comparison; raw recorder start→STOP; history list; **setup flow** region→exercise→(auto machine)→variant→muscles→pre-filled weight→START; cannot start without weight; **live session screen** fed with a synthetic stream reaches SET 1 → REST → … → SAVED without any button, persisted provisional state after Set 2 and a complete final record |
+| `src/memory/__tests__/memory.test.ts` | Exact variant → most recent performance (kg, reps, rests, formatting); previous comparable session skipping other grips/machines; previous comparable for any given session; loads never compared across machines or variants (incl. no weight pre-fill from another machine); resume weight from exact history, over an unfinished-session weight, labelled unfinished/fallback cases; machine memory (last use, recent, variants; shared cable station; unused machine); body-region last trained and sessions/sets over 7 and 30 days; two-region exercise; muscle PRIMARY vs SECONDARY exposure kept separate; empty history everywhere; deterministic chronological ordering with ties; recent variants; period vs previous period; history from saved sessions (detected vs corrected source, rest alignment, interrupted excluded) |
+| `src/ui/__tests__/screens.test.tsx` | Screens with mocked storage/sensors: review screen shows detection, saves truth, comparison; raw recorder start→STOP; history list; **setup flow** region→exercise→(auto machine)→variant→muscles→pre-filled weight→START; cannot start without weight; **live session screen** fed with a synthetic stream reaches SET 1 → REST → … → SAVED without any button, persisted provisional state after Set 2 and a complete final record; **memory in the UX**: region recency, machine recall, LAST TIME / PREVIOUS / change and exact-variant weight before START, fallback weight labelled (never "Last time"), Home one-tap reopen, empty-history states |
 
-Test changes in this iteration: the screen tests' storage mock gained `loadSession`/`saveSession` (new
+Test changes: the screen tests' storage mock gained `loadSession`/`saveSession` and later `loadHistory` (new
 dependencies of the review screen); no assertion was weakened. The free-text setup screen was renamed
 `DebugSetupScreen` (developer mode); its behaviour is unchanged.
 
@@ -42,6 +43,7 @@ Record every run in the results table below. The founder performs; Claude analys
 ### T0 — Acquisition check — DONE (founder, 2026-09): app runs on iPhone, DeviceMotion ≈ 100 Hz.
 
 ### T1-session — First real weight-stack session (the next test)
+(Also the first real entry in the training memory: afterwards, choosing the same variant must show it as LAST TIME.)
 1. Attach the phone to the top plate of the stack (strong straps, screen reachable, nothing touching the
    frame; one slow light rep to check).
 2. Start exercise → choose region, exercise, machine, variant → check the muscle preview → set the weight
@@ -54,6 +56,8 @@ Record every run in the results table below. The founder performs; Claude analys
    If it has not after 60 s, press "Finish exercise now" and note it.
 8. Write down what the screen showed during each rest (e.g. "REST appeared at 00:14") and anything odd.
 9. Review & correct: enter the real counts and rests → Save → Export JSON → send it back.
+10. Memory check: go back Home → "Continue where you left off" should list the exercise; tap it → setup shows
+    LAST TIME with your (corrected) counts and the weight pre-filled. Note if anything is wrong.
 
 ### T2 — Repeatability and variants (after T1-session is analysed)
 - T2a: repeat T1-session. T2b: a scheme you pick on the spot (e.g. 8 / 5 / 14). T2c: slow tempo

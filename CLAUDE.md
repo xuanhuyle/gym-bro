@@ -3,8 +3,14 @@
 Read PRODUCT.md (why), STATUS.md (where we are) and TESTS.md (how we know) before changing anything.
 
 ## What this is
-Gate 0 of a strength-training app: an iPhone app (React Native + Expo SDK 57 + TypeScript) that records
-the phone's motion while it is strapped to a selectorized weight stack, then counts reps → sets → rest.
+**Gym Bro is a memory layer for strength training**: it remembers what the user did on every exercise and
+machine (load, reps, sets, rests, frequency) and brings it back when they return — REMEMBER → RESUME →
+COMPARE → UNDERSTAND → (later) BENCHMARK. See PRODUCT.md.
+
+Automatic capture is the *enabling technology*, not the product: an iPhone app (React Native + Expo SDK 57 +
+TypeScript) records the phone's motion while it is strapped to a selectorized weight stack and derives reps →
+sets → rests (Gate 0, still hardware-validation-pending). Judge features by whether they make the training
+memory more reliable or more useful at the moment of need ("what was I doing on this machine?").
 The founder works on Windows with a physical iPhone and **no Mac**: the app must keep running in
 **Expo Go** (no custom native code) unless we deliberately move to an EAS development build.
 
@@ -18,6 +24,9 @@ src/catalogue/    pure data + queries: BodyRegion, Exercise, Equipment, Exercise
 src/session/      pure exercise-session state machine (READY → ACTIVE_SET ⇄ REST → COMPLETE) fed by rep
                   events + watermark ticks; windowed adapter running the unchanged analysis engine live;
                   replay driver; persisted session record.
+src/memory/       pure training-memory layer: history entries from completed sessions (+ user corrections),
+                  queries for variant / machine / body-region / muscle memory, resume weight, session and
+                  period comparisons, formatting. No React.
 src/storage/      expo-file-system persistence (recording, session, weights, settings), export, import.
 src/ui/           screens + components; recorder.ts = recording lifecycle glue. App.tsx = route state machine.
 scripts/          Node CLIs: `npm run analyze -- file.json` (offline + live-session replay + HTML report), `npm run synth`.
@@ -29,6 +38,20 @@ recordings/       real recordings returned from the phone (raw data is precious:
 - Algorithm output (session state, analysis) and user corrections (`userReported` in the recording meta)
   are stored separately. Never overwrite detector output with corrections.
 - Catalogue choices come from `src/catalogue/data.ts`; UI never hard-codes exercises or muscles.
+- Recall shown in the UI comes from `src/memory/` queries (pure, tested), never ad-hoc in components.
+
+## Product rules (memory layer)
+- Do not treat rep counting as the whole product; capture work must serve the memory.
+- Loads/performance are compared only within the same ExerciseVariant (exercise × machine × variant).
+  Never compare kilograms across machines or mechanically different variants.
+- Memory uses the user's corrected counts when present, else detected counts, and says which (`source`).
+  Only COMPLETE sessions are history.
+- Facts, not scores: no fitness/progress/hypertrophy/region scores, no activation percentages; keep
+  PRIMARY (direct) and SECONDARY (contributing) muscle exposure separate.
+- Fallbacks are labelled (e.g. a weight borrowed from another grip is not "last time").
+- History is contextual: surface it where the decision is made (setup, weight field, review), not only in
+  dashboards. Keep the live recording UI minimal.
+- Longitudinal analysis = "this session/period vs the previous comparable one". Build on `src/memory/`.
 - Raw samples are stored exactly as the sensor reports them (except t re-based to 0). Never store only
   derived data: the point is to re-run improved algorithms on old recordings.
 - Changing a column's meaning = bump `RECORDING_SCHEMA_VERSION` and keep reading old versions.

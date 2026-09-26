@@ -5,7 +5,8 @@ import { catalogue } from './src/catalogue/catalogue';
 import { rememberWeight } from './src/catalogue/weightMemory';
 import { emptyContext, ExerciseContext } from './src/recording/schema';
 import { contextFromSelection, ExerciseSelection, makeSelection } from './src/session/record';
-import { loadWeightBook, readSettings, saveWeightBook, writeSettings } from './src/storage/recordingStore';
+import { TrainingEntry } from './src/memory/history';
+import { loadHistory, loadWeightBook, readSettings, saveWeightBook, writeSettings } from './src/storage/recordingStore';
 import { colors } from './src/ui/components/common';
 import { DebugSetupScreen } from './src/ui/screens/DebugSetupScreen';
 import { DetailScreen } from './src/ui/screens/DetailScreen';
@@ -17,7 +18,7 @@ import { RecordingScreen } from './src/ui/screens/RecordingScreen';
 // A handful of screens, so a plain state machine instead of a navigation library.
 type Route =
   | { name: 'home' }
-  | { name: 'setup' }
+  | { name: 'setup'; initial?: { regionId: string; variantId: string } }
   | { name: 'session'; selection: ExerciseSelection; loadKg: number; context: ExerciseContext }
   | { name: 'detail'; id: string }
   | { name: 'debugSetup' }
@@ -35,6 +36,14 @@ function loadSettings(): Settings {
     return readSettings(fallback);
   } catch {
     return fallback;
+  }
+}
+
+function safeHistory(): TrainingEntry[] {
+  try {
+    return loadHistory();
+  } catch {
+    return [];
   }
 }
 
@@ -56,6 +65,8 @@ export default function App() {
     case 'home':
       screen = (
         <HomeScreen
+          history={safeHistory()}
+          onResume={(initial) => setRoute({ name: 'setup', initial })}
           onNew={() => setRoute({ name: 'setup' })}
           onOpen={(id) => setRoute({ name: 'detail', id })}
           devMode={settings.devMode}
@@ -68,7 +79,8 @@ export default function App() {
       screen = (
         <ExerciseSetupScreen
           weights={loadWeightBook()}
-          initial={settings.lastSelection && safeVariant(settings.lastSelection.variantId) ? settings.lastSelection : null}
+          history={safeHistory()}
+          initial={route.initial ?? (settings.lastSelection && safeVariant(settings.lastSelection.variantId) ? settings.lastSelection : null)}
           onCancel={() => setRoute({ name: 'home' })}
           onStart={({ regionId, variantId, loadKg }) => {
             try {

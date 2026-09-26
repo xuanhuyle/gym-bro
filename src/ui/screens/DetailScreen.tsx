@@ -5,7 +5,9 @@ import { evaluate, evaluateCounts, Evaluation } from '../../analysis/evaluate';
 import { contextLabel, Recording, UserReported } from '../../recording/schema';
 import { summarize } from '../../session/machine';
 import { ExerciseSessionRecord } from '../../session/record';
-import { deleteRecording, loadRecording, loadSession, shareRecordingJson, shareSamplesCsv, updateMeta } from '../../storage/recordingStore';
+import { fmtDay, fmtKg, fmtReps, fmtSigned } from '../../memory/format';
+import { previousComparable } from '../../memory/queries';
+import { deleteRecording, loadHistory, loadRecording, loadSession, shareRecordingJson, shareSamplesCsv, updateMeta } from '../../storage/recordingStore';
 import { fmtClock } from './ExerciseSessionScreen';
 import { Button, Card, Chips, colors, Row, styles } from '../components/common';
 import { TraceChart } from '../components/TraceChart';
@@ -19,6 +21,7 @@ const f1 = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ?
 export function DetailScreen(props: { id: string; onBack: () => void }) {
   const [rec, setRec] = useState<Recording | null>(null);
   const [session, setSession] = useState<ExerciseSessionRecord | null>(null);
+  const [memory, setMemory] = useState<ReturnType<typeof previousComparable>>(null);
   const [error, setError] = useState<string | null>(null);
   const [runId, setRunId] = useState(0);
   useEffect(() => {
@@ -27,6 +30,11 @@ export function DetailScreen(props: { id: string; onBack: () => void }) {
       try {
         setRec(loadRecording(props.id));
         setSession(loadSession(props.id) ?? null);
+        try {
+          setMemory(previousComparable(loadHistory() ?? [], props.id));
+        } catch {
+          setMemory(null);
+        }
       } catch (e) {
         setError(String(e));
       }
@@ -52,10 +60,23 @@ export function DetailScreen(props: { id: string; onBack: () => void }) {
       </View>
     );
   }
-  return <DetailBody rec={rec} res={res} session={session} onBack={props.onBack} onReanalyze={() => setRunId((n) => n + 1)} onSaved={(u) => setRec({ ...rec, userReported: u })} />;
+  return <DetailBody rec={rec} res={res} session={session} memory={memory} onBack={props.onBack} onReanalyze={() => setRunId((n) => n + 1)} onSaved={(u) => setRec({ ...rec, userReported: u })} />;
 }
 
-function DetailBody({ rec, res, session, onBack, onReanalyze, onSaved }: { rec: Recording; res: AnalysisResult; session: ExerciseSessionRecord | null; onBack: () => void; onReanalyze: () => void; onSaved: (u: UserReported) => void }) {
+function DetailBody({
+  rec,
+  res,
+  session,
+  memory,
+  onBack,
+  onReanalyze,
+  onSaved,
+}: {
+  rec: Recording;
+  res: AnalysisResult;
+  session: ExerciseSessionRecord | null;
+  memory: ReturnType<typeof previousComparable>;
+  onBack: () => void; onReanalyze: () => void; onSaved: (u: UserReported) => void }) {
   const [signal, setSignal] = useState<SignalName>('Displacement');
   const [showCandidates, setShowCandidates] = useState(false);
   const truth = rec.userReported;
@@ -120,6 +141,24 @@ function DetailBody({ rec, res, session, onBack, onReanalyze, onSaved }: { rec: 
           <Row label="Ended by" value={session.state.completion?.reason ?? '— (app closed before completion)'} />
           <Row label="Ignored movements" value={session.state.ignored.filter((i) => i.reason === 'isolated').length} />
           <Text style={{ color: colors.warn, fontSize: 12, marginTop: 6 }}>Live segmentation is hardware-validation-pending. The offline re-analysis below uses the whole recording.</Text>
+        </Card>
+      ) : null}
+
+      {memory ? (
+        <Card title="Compared with the previous session">
+          {memory.previous && memory.change?.comparable ? (
+            <>
+              <Row label={`Previous (${fmtDay(memory.previous.date)})`} value={`${fmtKg(memory.previous.loadKg)} · ${fmtReps(memory.previous.reps)}`} />
+              <Row label="This session" value={`${fmtKg(memory.entry.loadKg)} · ${fmtReps(memory.entry.reps)}`} />
+              <Row
+                label="Change"
+                value={`${memory.change.diff.loadDeltaKg != null ? fmtSigned(memory.change.diff.loadDeltaKg, ' kg') : '? kg'} · ${fmtSigned(memory.change.diff.totalRepsDelta)} reps · ${fmtSigned(memory.change.diff.setCountDelta)} sets`}
+              />
+              <Text style={[styles.muted, { fontSize: 12 }]}>Same exercise, machine and variant only.</Text>
+            </>
+          ) : (
+            <Text style={styles.muted}>First session with this exercise, machine and variant.</Text>
+          )}
         </Card>
       ) : null}
 

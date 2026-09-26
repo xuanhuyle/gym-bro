@@ -1,18 +1,67 @@
 # PRODUCT.md — thesis and roadmap
 
 ## Thesis
-Strength trainees don't reliably know what they actually did or how it adds up. A product that
-**automatically records** training, **maps** it to what was trained and **reports** progress and gaps
-can become the default training log — if the capture is effortless and trustworthy.
+**Gym Bro is a memory layer for strength training.** It remembers what the user did on every exercise and
+machine — load, reps, sets, rests and frequency — and brings that history back when the user needs it.
+Automatic capture makes the memory reliable; exercise-to-muscle mapping lets that memory aggregate into
+body-region and muscle-level history.
 
-## Three value layers
-1. **Counting** — automatically record what the user did: reps, sets, rest, later cadence/amplitude.
-2. **Mapping** — each exercise → Push/Pull/Legs, body region, muscles, sub-muscles.
-3. **Reporting** — what was trained, progression, gaps vs. objective, later cohort comparisons/percentiles.
+## The user pain
+> "When I return to an exercise, machine or body region, I don't reliably remember what I did previously."
 
-Counting is the foundation: if it is not trustworthy, mapping and reporting have nothing to stand on.
+- What weight did I use last time? How many reps? How many sets? How long did I rest?
+- When did I last do this exercise? Use this machine? Train this body region?
+- Am I doing more / less / better than before?
 
-## Interaction model: one exercise
+The moment we optimise for: **a user walks up to a machine and thinks "what was I doing on this thing?"** —
+Gym Bro answers in a few seconds, in context, without opening an analytics screen.
+
+## Hierarchy of value
+1. **REMEMBER** — what did I do before? (last load, reps per set, rests, date; per variant, machine, region)
+2. **RESUME** — continue immediately from where I left off (reopen recent exercises, weight pre-filled
+   from memory, the previous performance visible before starting).
+3. **COMPARE** — how does today differ from the previous comparable session / period?
+4. **UNDERSTAND** — how is my training evolving by exercise, machine, body region and muscle?
+5. **BENCHMARK** — later: progression compared with relevant cohorts.
+
+Supporting capabilities (means, not the product):
+- **Automatic capture** (phone on the weight stack → reps, sets, rests) makes the memory complete and
+  reliable without manual logging. It is an enabling technology, not the value proposition.
+- **Catalogue + deterministic muscle mapping** (ExerciseVariant → PRIMARY/SECONDARY muscles) lets the
+  memory aggregate from exercise level to muscle and body-region level.
+- **User corrections** keep the memory truthful when capture is wrong; they are stored separately from
+  detector output, and memory prefers them.
+
+## Memory principles
+- **Comparable means the same ExerciseVariant** (exercise × machine × variant). Loads and performance are
+  never compared across different machines or mechanically different variants.
+- **Facts, not scores.** Frequencies, sets, reps, loads, rests, dates. No synthetic fitness, progress,
+  hypertrophy or "body-region" scores; no invented activation percentages. PRIMARY and SECONDARY muscle
+  exposure are always kept separate.
+- **Fallbacks are labelled.** If memory has to borrow (e.g. the weight from another grip on the same machine),
+  the UI says so instead of presenting it as "last time".
+- **Contextual, not buried.** History appears where the decision is made (choosing region, machine, variant,
+  weight), not only in dashboards.
+- **Local first.** History lives on the phone; no backend or account for now.
+
+## What the user sees today
+- Home: "Continue where you left off" — recent exercise variants with their last performance; one tap reopens
+  the setup with region, exercise, machine, variant and weight already chosen.
+- Setup: as soon as a region is chosen → when it was last trained and 7/30-day sessions and sets; a machine →
+  what was last done on it; a variant → **LAST TIME** (date, kg, reps per set, rests) and **PREVIOUS** with the
+  change; the weight field pre-filled from memory with "Last time: 40 kg · 12/11/10" beside it.
+- Review after a session: compared with the previous session of the same variant.
+
+## Longitudinal analysis (direction, not yet built as UI)
+Central primitive: **compare a selected period or session with the previous comparable period or session**
+(last session vs previous; last 30 days vs previous 30; last 8 weeks vs previous 8).
+- Body region: training frequency, sets, exercise mix, recency.
+- Muscle: direct (PRIMARY) frequency and sets, contributing (SECONDARY) sets, change over time.
+- ExerciseVariant: load, reps, sets, rest, performance progression.
+The pure query layer (`src/memory/`) already provides the building blocks (variant/machine/region/muscle
+memory, session diff, period-vs-previous-period counts).
+
+## Capture interaction: one exercise
 The user provides the semantic context; the phone captures the temporal workout data.
 
 1. Choose **body region** → catalogue shows the relevant **exercises**.
@@ -48,6 +97,7 @@ Semantic objects: BodyRegion, Exercise, Equipment (machine), ExerciseVariant (ex
 equipment × variant — the unit that muscle mapping and weight memory attach to), Muscle,
 ExerciseMuscleContribution (PRIMARY / SECONDARY).
 
+
 ## Gate 0 (current): can an iPhone count a weight-stack workout?
 Setup: the user straps their own iPhone to the moving top plate of a selectorized machine; the exercise is
 chosen from the catalogue. No exercise recognition. The phone records its motion; the app detects reps,
@@ -65,11 +115,12 @@ tells us which layer to fix (sensor, mounting, detector, session rules) or wheth
 Explicitly out of scope for Gate 0: external/Bluetooth sensors (Movesense), video, exercise recognition,
 backend, accounts, benchmarking/percentiles, recommendations, photos, a full exercise ontology, social.
 
-## Roadmap after Gate 0 (only if counting works)
+## Roadmap after Gate 0 (only if capture works)
 - Gate 1: robustness — several machines, users, tempos, phone mounts; user-correction loop in daily use;
   decide whether the phone-on-stack approach is viable as a product (mounting UX!) or only as a validation
   tool before dedicated sensors.
 - Gate 2: mapping — grow the catalogue (machines actually used in gyms), sub-muscles, validate mappings with a
   coach/physio; per-muscle volume from sets × reps × load.
-- Gate 3: reporting — per-user history, volume per muscle group, progression, gaps vs. goals.
-- Later: cadence/ROM quality metrics, cohorts and percentiles (needs a backend and consent), wearables.
+- Gate 3: understand — period-vs-previous-period comparisons per variant, body region and muscle (direct vs
+  contributing), exercise mix and recency; still facts, no opaque scores.
+- Later: benchmark against relevant cohorts (needs a backend and consent), cadence/ROM quality, wearables.
