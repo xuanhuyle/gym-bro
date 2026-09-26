@@ -1,0 +1,45 @@
+{
+  "name": "gym-bro",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "expo": "~57.0.25",
+    "expo-constants": "~57.0.19",
+    "expo-device": "~57.0.2",
+    "expo-document-picker": "~57.0.2",
+    "expo-file-system": "~57.0.7",
+    "expo-keep-awake": "~57.0.2",
+    "expo-sensors": "~57.0.3",
+    "expo-sharing": "~57.0.22",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-svg": "15.15.4"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.20.4",
+    "@types/react": "~19.2.2",
+    "jest": "^29.7.0",
+    "jest-expo": "~57.0.5",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start",
+    "start:tunnel": "expo start --tunnel",
+    "ios": "expo start --ios",
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "check": "tsc --noEmit && jest",
+    "analyze": "tsx scripts/analyze.ts",
+    "synth": "tsx scripts/synth.ts"
+  },
+  "private": true,
+  "jest": {
+    "preset": "jest-expo",
+    "testPathIgnorePatterns": [
+      "/node_modules/"
+    ]
+  }
+}
