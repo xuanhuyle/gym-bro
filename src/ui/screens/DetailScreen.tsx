@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, Text, TextInput, View } from 'react-native';
 import { analyzeSamples, AnalysisResult } from '../../analysis/analyze';
-import { evaluate } from '../../analysis/evaluate';
+import { evaluate, evaluateCounts, Evaluation } from '../../analysis/evaluate';
 import { contextLabel, Recording, UserReported } from '../../recording/schema';
-import { deleteRecording, loadRecording, shareRecordingJson, shareSamplesCsv, updateMeta } from '../../storage/recordingStore';
+import { summarize } from '../../session/machine';
+import { ExerciseSessionRecord } from '../../session/record';
+import { deleteRecording, loadRecording, loadSession, shareRecordingJson, shareSamplesCsv, updateMeta } from '../../storage/recordingStore';
+import { fmtClock } from './ExerciseSessionScreen';
 import { Button, Card, Chips, colors, Row, styles } from '../components/common';
 import { TraceChart } from '../components/TraceChart';
 
@@ -15,6 +18,7 @@ const f1 = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ?
 
 export function DetailScreen(props: { id: string; onBack: () => void }) {
   const [rec, setRec] = useState<Recording | null>(null);
+  const [session, setSession] = useState<ExerciseSessionRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [runId, setRunId] = useState(0);
   useEffect(() => {
@@ -22,6 +26,7 @@ export function DetailScreen(props: { id: string; onBack: () => void }) {
     const h = setTimeout(() => {
       try {
         setRec(loadRecording(props.id));
+        setSession(loadSession(props.id) ?? null);
       } catch (e) {
         setError(String(e));
       }
@@ -47,14 +52,23 @@ export function DetailScreen(props: { id: string; onBack: () => void }) {
       </View>
     );
   }
-  return <DetailBody rec={rec} res={res} onBack={props.onBack} onReanalyze={() => setRunId((n) => n + 1)} onSaved={(u) => setRec({ ...rec, userReported: u })} />;
+  return <DetailBody rec={rec} res={res} session={session} onBack={props.onBack} onReanalyze={() => setRunId((n) => n + 1)} onSaved={(u) => setRec({ ...rec, userReported: u })} />;
 }
 
-function DetailBody({ rec, res, onBack, onReanalyze, onSaved }: { rec: Recording; res: AnalysisResult; onBack: () => void; onReanalyze: () => void; onSaved: (u: UserReported) => void }) {
+function DetailBody({ rec, res, session, onBack, onReanalyze, onSaved }: { rec: Recording; res: AnalysisResult; session: ExerciseSessionRecord | null; onBack: () => void; onReanalyze: () => void; onSaved: (u: UserReported) => void }) {
   const [signal, setSignal] = useState<SignalName>('Displacement');
   const [showCandidates, setShowCandidates] = useState(false);
   const truth = rec.userReported;
   const ev = truth && truth.sets.length ? evaluate(res, { sets: truth.sets, restsSec: truth.restsSec }) : null;
+  const live = session ? summarize(session.state, session.state.watermarkSec) : null;
+  const liveEv =
+    live && truth && truth.sets.length
+      ? evaluateCounts(
+          live.sets.map((x) => x.reps),
+          live.rests.filter((r) => !r.ongoing).map((r) => r.durationSec),
+          { sets: truth.sets, restsSec: truth.restsSec },
+        )
+      : null;
   const signalKey = SIGNALS.find((k) => SIGNAL_NAMES[k] === signal)!;
 
   const exportAs = async (kind: 'json' | 'csv') => {
@@ -87,7 +101,29 @@ function DetailBody({ rec, res, onBack, onReanalyze, onSaved }: { rec: Recording
         {rec.stoppedAt == null ? ' · INTERRUPTED' : ''}
       </Text>
 
-      <Card title="Detected" style={{ marginTop: 12 }}>
+      {session && live ? (
+        <Card title={`Automatic session result (${session.status === 'complete' ? 'complete' : 'interrupted'})`} style={{ marginTop: 12 }}>
+          <Row label="Exercise" value={`${session.selection.labels.exercise}${session.selection.labels.variant ? ' · ' + session.selection.labels.variant : ''}`} />
+          <Row label="Machine" value={session.selection.labels.equipment} />
+          <Row label="Weight" value={session.loadKg != null ? `${session.loadKg} kg` : '—'} />
+          <Row label="Primary muscles" value={session.selection.muscles.primary.join(', ')} />
+          {session.selection.muscles.secondary.length ? <Row label="Secondary muscles" value={session.selection.muscles.secondary.join(', ')} /> : null}
+          {live.sets.map((x) => {
+            const rest = live.rests.find((r) => r.afterSet === x.index && !r.ongoing);
+            return (
+              <React.Fragment key={x.index}>
+                <Row label={`Set ${x.index + 1}`} value={`${x.reps} reps`} />
+                {rest ? <Row label="Rest" value={fmtClock(rest.durationSec)} /> : null}
+              </React.Fragment>
+            );
+          })}
+          <Row label="Ended by" value={session.state.completion?.reason ?? '— (app closed before completion)'} />
+          <Row label="Ignored movements" value={session.state.ignored.filter((i) => i.reason === 'isolated').length} />
+          <Text style={{ color: colors.warn, fontSize: 12, marginTop: 6 }}>Live segmentation is hardware-validation-pending. The offline re-analysis below uses the whole recording.</Text>
+        </Card>
+      ) : null}
+
+      <Card title={session ? 'Offline re-analysis (whole recording)' : 'Detected'} style={{ marginTop: 12 }}>
         <Row label="Sets" value={res.sets.length} />
         <Row label="Reps per set" value={res.sets.map((s) => s.repCount).join(' / ') || '—'} />
         {res.rests.map((r) => (
@@ -107,8 +143,9 @@ function DetailBody({ rec, res, onBack, onReanalyze, onSaved }: { rec: Recording
         ))}
       </Card>
 
-      <TruthEditor rec={rec} res={res} onSaved={onSaved} />
+      <TruthEditor rec={rec} res={res} liveReps={live ? live.sets.map((x) => x.reps) : null} onSaved={onSaved} />
 
+      {liveEv ? <ComparisonCard title={liveEv.exact ? 'Live session vs actual: exact match ✓' : 'Live session vs actual: mismatch ✗'} ev={liveEv} /> : null}
       {ev ? (
         <Card title={ev.exact ? 'Comparison: exact match ✓' : 'Comparison: mismatch ✗'}>
           <Row label="Sets (actual / detected)" value={`${ev.truthSets} / ${ev.detectedSets}`} tone={ev.truthSets === ev.detectedSets ? 'good' : 'danger'} />
@@ -159,7 +196,20 @@ function DetailBody({ rec, res, onBack, onReanalyze, onSaved }: { rec: Recording
   );
 }
 
-function TruthEditor({ rec, res, onSaved }: { rec: Recording; res: AnalysisResult; onSaved: (u: UserReported) => void }) {
+function ComparisonCard({ title, ev }: { title: string; ev: Evaluation }) {
+  return (
+    <Card title={title}>
+      {Array.from({ length: Math.max(ev.truthReps.length, ev.detectedReps.length) }, (_, i) => (
+        <Row key={i} label={`Set ${i + 1} reps (actual / detected)`} value={`${ev.truthReps[i] ?? '—'} / ${ev.detectedReps[i] ?? '—'}`} tone={ev.truthReps[i] === ev.detectedReps[i] ? 'good' : 'danger'} />
+      ))}
+      {ev.truthRestsSec.map((t, i) => (
+        <Row key={`r${i}`} label={`Rest ${i + 1} (actual / detected)`} value={`${f1(t)} / ${f1(ev.detectedRestsSec[i])} s`} />
+      ))}
+    </Card>
+  );
+}
+
+function TruthEditor({ rec, res, liveReps, onSaved }: { rec: Recording; res: AnalysisResult; liveReps: number[] | null; onSaved: (u: UserReported) => void }) {
   const init = rec.userReported;
   const [reps, setReps] = useState<string[]>(init ? init.sets.map((s) => String(s.reps)) : ['']);
   const [rests, setRests] = useState<string[]>(init ? init.restsSec.map((r) => (r == null ? '' : String(r))) : []);
@@ -171,9 +221,9 @@ function TruthEditor({ rec, res, onSaved }: { rec: Recording; res: AnalysisResul
     setRests((r) => Array.from({ length: Math.max(0, n - 1) }, (_, i) => r[i] ?? ''));
     setDirty(true);
   };
-  const copyDetected = () => {
-    setReps(res.sets.map((s) => String(s.repCount)));
-    setRests(res.rests.map(() => ''));
+  const copyDetected = (counts: number[]) => {
+    setReps(counts.length ? counts.map(String) : ['']);
+    setRests(counts.slice(1).map(() => ''));
     setDirty(true);
   };
   const save = () => {
@@ -247,7 +297,8 @@ function TruthEditor({ rec, res, onSaved }: { rec: Recording; res: AnalysisResul
         style={[styles.input, { minHeight: 60, marginTop: 4 }]}
       />
       <Button title={dirty ? 'Save' : init ? 'Saved ✓' : 'Save'} onPress={save} disabled={!dirty} />
-      <Button title="Copy detected counts (then correct them)" kind="secondary" onPress={copyDetected} />
+      {liveReps ? <Button title="Copy live session counts (then correct them)" kind="secondary" onPress={() => copyDetected(liveReps)} /> : null}
+      <Button title="Copy detected counts (then correct them)" kind="secondary" onPress={() => copyDetected(res.sets.map((s) => s.repCount))} />
     </Card>
   );
 }

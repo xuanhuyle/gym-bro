@@ -26,6 +26,8 @@ const mockStore = {
   createRecording: jest.fn(),
   appendSamples: jest.fn(),
   newRecordingId: jest.fn(() => 'rec-1'),
+  loadSession: jest.fn(() => null),
+  saveSession: jest.fn(),
 };
 jest.mock('../../storage/recordingStore', () => mockStore);
 
@@ -96,4 +98,86 @@ describe('HomeScreen', () => {
     expect(screen.getByText('Pull → Back → Lat Pulldown → 35 kg')).toBeTruthy();
     expect(screen.getByText(/Interrupted/)).toBeTruthy();
   });
+});
+
+describe('ExerciseSetupScreen', () => {
+  it('walks region → exercise → machine → variant, shows muscles, pre-fills the last weight and starts', async () => {
+    const { ExerciseSetupScreen } = require('../screens/ExerciseSetupScreen');
+    const { rememberWeight, emptyWeightBook } = require('../../catalogue/weightMemory');
+    const { catalogue } = require('../../catalogue/catalogue');
+    const weights = rememberWeight(emptyWeightBook(), catalogue.variant('lat_pulldown.machine.wide_overhand'), 35, '2026-09-01T10:00:00Z');
+    const onStart = jest.fn();
+    await render(<ExerciseSetupScreen weights={weights} onStart={onStart} onCancel={jest.fn()} />);
+    expect(screen.queryByText('Lat Pulldown')).toBeNull();
+    await fireEvent.press(screen.getByText('Back'));
+    await fireEvent.press(screen.getByText('Lat Pulldown'));
+    // Only one compatible machine: selected automatically.
+    expect(screen.getByText('Lat pulldown machine')).toBeTruthy();
+    await fireEvent.press(screen.getByText('Wide overhand grip'));
+    expect(screen.getByText('Latissimus dorsi')).toBeTruthy();
+    expect(screen.getByText(/Teres major/)).toBeTruthy();
+    expect(screen.getByLabelText('Weight in kg').props.value).toBe('35');
+    await fireEvent.press(screen.getByText('+2.5'));
+    await fireEvent.press(screen.getByText('START EXERCISE'));
+    expect(onStart).toHaveBeenCalledWith({ regionId: 'back', variantId: 'lat_pulldown.machine.wide_overhand', loadKg: 37.5 });
+  });
+
+  it('cannot start before a weight is set', async () => {
+    const { ExerciseSetupScreen } = require('../screens/ExerciseSetupScreen');
+    const { emptyWeightBook } = require('../../catalogue/weightMemory');
+    const onStart = jest.fn();
+    await render(<ExerciseSetupScreen weights={emptyWeightBook()} onStart={onStart} onCancel={jest.fn()} />);
+    await fireEvent.press(screen.getByText('Legs'));
+    await fireEvent.press(screen.getByText('Leg Extension'));
+    expect(screen.getByText('Quadriceps')).toBeTruthy();
+    await fireEvent.press(screen.getByText('START EXERCISE'));
+    expect(onStart).not.toHaveBeenCalled();
+  });
+});
+
+describe('ExerciseSessionScreen', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+    mockStream.drain.mockImplementation(() => [[0, 0, 0, 0, 0, 0, -9.8, 0, 0, 0, 0, 0, 0]]);
+  });
+
+  it('runs Set → Rest → Set → Rest → Set → SAVED from the sensor stream without any button, persisting along the way', async () => {
+    const { act } = require('@testing-library/react-native');
+    const { ExerciseSessionScreen } = require('../screens/ExerciseSessionScreen');
+    const { catalogue } = require('../../catalogue/catalogue');
+    const { makeSelection, contextFromSelection } = require('../../session/record');
+    const { samples } = generateWorkout({ seed: 3, sets: [{ reps: 10 }, { reps: 12 }, { reps: 15 }], restsSec: [20, 20], leadOutSec: 40, userAccelSign: -1 });
+    let i = 0;
+    let clock = 0;
+    mockStream.drain.mockImplementation(() => {
+      clock += 2;
+      const out = [];
+      while (i < samples.length && samples[i][0] < clock) out.push(samples[i++]);
+      return out;
+    });
+    jest.useFakeTimers();
+    const selection = makeSelection(catalogue, 'back', 'lat_pulldown.machine.wide_overhand');
+    await render(<ExerciseSessionScreen selection={selection} loadKg={35} context={contextFromSelection(catalogue, selection, 35)} onExit={jest.fn()} />);
+    await act(async () => {});
+    expect(screen.getByText('LAT PULLDOWN')).toBeTruthy();
+    expect(screen.getByText('35 kg')).toBeTruthy();
+    let sawRest = false;
+    for (let k = 0; k < 150 && !screen.queryByText('SAVED ✓'); k++) {
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      if (screen.queryAllByText('REST').length) sawRest = true;
+    }
+    expect(sawRest).toBe(true);
+    expect(screen.getByText('SAVED ✓')).toBeTruthy();
+    expect(screen.getByText('SET 3')).toBeTruthy();
+    const saves = mockStore.saveSession.mock.calls.map((c: unknown[]) => c[0] as { status: string; state: { sets: { reps: unknown[] }[] } });
+    // Provisional state was persisted before completion (a crash would keep Set 1 and Set 2).
+    expect(saves.some((r) => r.status === 'in-progress' && r.state.sets.length === 2)).toBe(true);
+    const final = saves[saves.length - 1];
+    expect(final.status).toBe('complete');
+    expect(final.state.sets.map((x) => x.reps.length)).toEqual([10, 12, 15]);
+    // The raw recording was finalised too.
+    expect(mockStore.updateMeta).toHaveBeenCalledWith('rec-1', expect.objectContaining({ stoppedAt: expect.any(String) }));
+  }, 60000);
 });

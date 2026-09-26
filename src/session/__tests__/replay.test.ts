@@ -1,0 +1,46 @@
+/**
+ * Replay integration: synthetic 100 Hz recordings → windowed detector (the
+ * unchanged offline engine) → session state machine, chunked every 2 s
+ * exactly like the live app. Synthetic data checks the plumbing and the
+ * rules; it does NOT validate behaviour on a real weight stack.
+ */
+import { generateWorkout, SyntheticSpec } from '../../analysis/synthetic';
+
+jest.setTimeout(30000);
+import { summarize } from '../machine';
+import { replaySession } from '../replay';
+
+const noisy: SyntheticSpec['disturbances'] = [
+  { kind: 'handling', count: 2 },
+  { kind: 'bump', count: 3 },
+  { kind: 'stack-nudge', count: 1 },
+];
+
+function replay(spec: SyntheticSpec, targetSets = spec.sets.length) {
+  const { samples, truth } = generateWorkout({ leadOutSec: 30, ...spec });
+  const { state } = replaySession(samples, { session: { targetSets }, detector: { analysis: { priorVerticalSign: spec.userAccelSign ?? 1 } } });
+  return { state, truth, sum: summarize(state, Infinity) };
+}
+
+describe('live pipeline on synthetic recordings', () => {
+  it.each([1, 2, 3, 4, 5, 6])('10/12/15 with noise in rests (seed %i): three sets, rests from last rep, COMPLETE', (seed) => {
+    const { state, truth, sum } = replay({ seed, sets: [{ reps: 10 }, { reps: 12 }, { reps: 15 }], restsSec: [20, 20], userAccelSign: seed % 2 ? 1 : -1, disturbances: noisy });
+    expect(state.phase).toBe('COMPLETE');
+    expect(state.completion?.reason).toBe('target-sets');
+    expect(sum.sets.map((s) => s.reps)).toEqual([10, 12, 15]);
+    sum.rests.forEach((r, i) => expect(Math.abs(r.durationSec - truth.restsSec[i])).toBeLessThan(1.5));
+  });
+
+  it('a different scheme and rest lengths (8 / 5 / 14, 35 s and 60 s)', () => {
+    const { state, sum } = replay({ seed: 21, sets: [{ reps: 8 }, { reps: 5 }, { reps: 14 }], restsSec: [35, 60], userAccelSign: -1, disturbances: noisy });
+    expect(state.phase).toBe('COMPLETE');
+    expect(sum.sets.map((s) => s.reps)).toEqual([8, 5, 14]);
+  });
+
+  it('only handling and knocks: no set is ever started', () => {
+    const { samples } = generateWorkout({ seed: 9, sets: [], restsSec: [], leadInSec: 90, disturbances: [{ kind: 'handling', count: 3 }, { kind: 'bump', count: 5 }] });
+    const { state } = replaySession(samples);
+    expect(state.sets).toHaveLength(0);
+    expect(state.phase).toBe('READY');
+  });
+});

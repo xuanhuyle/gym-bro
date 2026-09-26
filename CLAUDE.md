@@ -12,28 +12,41 @@ The founder works on Windows with a physical iPhone and **no Mac**: the app must
 ```
 src/sensors/      acquisition only: expo-sensors DeviceMotion → SampleRow (raw, timestamped). No analysis.
 src/recording/    schema.ts: the recording format (JSON/CSV). Pure TS. The contract between all layers.
-src/analysis/     pure, deterministic TS. No React Native / Expo imports. Runs on phone, Node and Jest.
-src/storage/      expo-file-system persistence, export (share sheet), import.
-src/ui/           screens + components. App.tsx is a 4-route state machine (no navigation library).
-scripts/          Node CLIs: `npm run analyze -- file.json` (replay + HTML debug report), `npm run synth`.
+src/analysis/     pure, deterministic TS rep/set engine for a guided weight stack. No React Native / Expo imports.
+src/catalogue/    pure data + queries: BodyRegion, Exercise, Equipment, ExerciseVariant, Muscle, contributions
+                  (PRIMARY/SECONDARY only, no percentages); last-used weight per variant.
+src/session/      pure exercise-session state machine (READY → ACTIVE_SET ⇄ REST → COMPLETE) fed by rep
+                  events + watermark ticks; windowed adapter running the unchanged analysis engine live;
+                  replay driver; persisted session record.
+src/storage/      expo-file-system persistence (recording, session, weights, settings), export, import.
+src/ui/           screens + components; recorder.ts = recording lifecycle glue. App.tsx = route state machine.
+scripts/          Node CLIs: `npm run analyze -- file.json` (offline + live-session replay + HTML report), `npm run synth`.
 recordings/       real recordings returned from the phone (raw data is precious: commit it).
 ```
 - The analysis engine takes `SampleRow[]` only. Live, imported and synthetic data go through the same function.
+- The session state machine takes rep events only (from live detection, replay, simulation or scripted
+  tests). Never put signal processing in it, and never put set/rest rules in the analysis engine.
+- Algorithm output (session state, analysis) and user corrections (`userReported` in the recording meta)
+  are stored separately. Never overwrite detector output with corrections.
+- Catalogue choices come from `src/catalogue/data.ts`; UI never hard-codes exercises or muscles.
 - Raw samples are stored exactly as the sensor reports them (except t re-based to 0). Never store only
   derived data: the point is to re-run improved algorithms on old recordings.
 - Changing a column's meaning = bump `RECORDING_SCHEMA_VERSION` and keep reading old versions.
+  Same for `SESSION_SCHEMA_VERSION` (session record) and the catalogue `version`.
 - Any change to the analysis behaviour: bump `ALGORITHM_VERSION` in `src/analysis/analyze.ts`.
 
 ## Honesty rules
 - Never hard-code expected counts (e.g. 10/12/15) or tune on the test scheme. Tests use many schemes.
 - Never change a valid test to make an incorrect implementation pass.
 - Synthetic data validates logic only. Do not claim sensor accuracy or "works on iPhone" without a real recording.
+- Live automatic set segmentation is HARDWARE-VALIDATION-PENDING until a real weight-stack recording confirms it.
+- Do not tune DSP thresholds against synthetic data; wait for real recordings.
 - When real recordings disagree with synthetic assumptions, trust the recording and update the generator.
 
 ## Commands
 ```
 npm run check                 # typecheck + all Jest tests (run before every commit)
-npm run analyze -- recordings/x.json [--truth 10,12,15 --rests 20,20]   # writes x.report.html
+npm run analyze -- recordings/x.json [--truth 10,12,15 --rests 20,20]   # offline + live-session replay; writes x.report.html
 npm run synth -- out.json --noisy --reps 8,12 --seed 3
 npm start                     # dev server for Expo Go (founder runs this on Windows)
 ```

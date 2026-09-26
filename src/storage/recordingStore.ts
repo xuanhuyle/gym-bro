@@ -13,6 +13,8 @@
 import { Directory, File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
+import { emptyWeightBook, parseWeightBook, WeightBook } from '../catalogue/weightMemory';
+import { ExerciseSessionRecord, parseSessionRecord } from '../session/record';
 import {
   csvHeader,
   parseRecordingJson,
@@ -32,7 +34,9 @@ const root = () => {
 };
 const metaFile = (id: string) => new File(root(), `${id}.meta.json`);
 const samplesFile = (id: string) => new File(root(), `${id}.samples.csv`);
+const sessionFile = (id: string) => new File(root(), `${id}.session.json`);
 const settingsFile = () => new File(Paths.document, 'settings.json');
+const weightsFile = () => new File(Paths.document, 'weights.json');
 
 export function newRecordingId(date = new Date()): string {
   const p = (n: number) => String(n).padStart(2, '0');
@@ -67,6 +71,7 @@ export interface RecordingListItem {
   meta: RecordingMeta;
   interrupted: boolean;
   sizeBytes: number;
+  session: ExerciseSessionRecord | null;
 }
 
 export function listRecordings(): RecordingListItem[] {
@@ -76,7 +81,7 @@ export function listRecordings(): RecordingListItem[] {
     try {
       const meta = JSON.parse(entry.textSync()) as RecordingMeta;
       const s = samplesFile(meta.id);
-      items.push({ meta, interrupted: meta.stoppedAt == null, sizeBytes: s.exists ? s.size : 0 });
+      items.push({ meta, interrupted: meta.stoppedAt == null, sizeBytes: s.exists ? s.size : 0, session: loadSession(meta.id) });
     } catch {
       // Unreadable meta: skip rather than break the list.
     }
@@ -92,7 +97,41 @@ export function loadRecording(id: string): Recording {
 }
 
 export function deleteRecording(id: string): void {
-  for (const f of [metaFile(id), samplesFile(id)]) if (f.exists) f.delete();
+  for (const f of [metaFile(id), samplesFile(id), sessionFile(id)]) if (f.exists) f.delete();
+}
+
+// ---- exercise sessions (algorithm output; persisted after every meaningful event) ----
+
+export function saveSession(record: ExerciseSessionRecord): void {
+  const f = sessionFile(record.id);
+  if (!f.exists) f.create();
+  f.write(JSON.stringify(record));
+}
+
+export function loadSession(id: string): ExerciseSessionRecord | null {
+  try {
+    const f = sessionFile(id);
+    return f.exists ? parseSessionRecord(f.textSync()) : null;
+  } catch {
+    return null;
+  }
+}
+
+// ---- last-used weight per exercise variant ----
+
+export function loadWeightBook(): WeightBook {
+  try {
+    const f = weightsFile();
+    return f.exists ? parseWeightBook(f.textSync()) : emptyWeightBook();
+  } catch {
+    return emptyWeightBook();
+  }
+}
+
+export function saveWeightBook(book: WeightBook): void {
+  const f = weightsFile();
+  if (!f.exists) f.create();
+  f.write(JSON.stringify(book));
 }
 
 function exportName(meta: RecordingMeta, ext: string): string {
@@ -103,9 +142,10 @@ function exportName(meta: RecordingMeta, ext: string): string {
 /** Full recording (metadata + samples) as one JSON file, then the iOS share sheet. */
 export async function shareRecordingJson(id: string): Promise<void> {
   const rec = loadRecording(id);
+  const session = loadSession(id);
   const out = new File(Paths.cache, exportName(rec, 'json'));
   out.create({ overwrite: true });
-  out.write(recordingToJson(rec));
+  out.write(recordingToJson(session ? { ...rec, liveSession: session } : rec));
   await Sharing.shareAsync(out.uri, { mimeType: 'application/json', UTI: 'public.json', dialogTitle: 'Export recording' });
 }
 
@@ -125,9 +165,16 @@ export async function importRecording(): Promise<string | null> {
   const rec = parseRecordingJson(await new File(res.assets[0].uri).text());
   let id = rec.id;
   if (metaFile(id).exists) id = `${id}-import-${Date.now()}`;
-  const { samples, ...meta } = rec;
+  const { samples, liveSession, ...meta } = rec;
   createRecording({ ...meta, id, sampleCount: samples.length });
   appendSamples(id, samples);
+  if (liveSession) {
+    try {
+      saveSession({ ...parseSessionRecord(JSON.stringify(liveSession)), id });
+    } catch {
+      // A malformed session block does not prevent importing the raw data.
+    }
+  }
   return id;
 }
 

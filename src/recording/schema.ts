@@ -56,6 +56,18 @@ export interface ExerciseContext {
   loadKg: number | null;
   machine: string;
   notes: string;
+  /**
+   * Catalogue identifiers when the context was chosen from the exercise
+   * catalogue (absent for free-text developer recordings). Optional and
+   * additive, so schema v1 files remain valid.
+   */
+  catalogue?: {
+    version: string;
+    regionId: string;
+    exerciseId: string;
+    equipmentId: string;
+    variantId: string;
+  };
 }
 
 /** What the user says actually happened. Serves both as ground truth and as the correction of the log. */
@@ -104,6 +116,12 @@ export interface RecordingMeta {
 
 export interface Recording extends RecordingMeta {
   samples: SampleRow[];
+  /**
+   * Export only: the phone's live exercise-session result (a
+   * `gymbro.session` record, see src/session/record.ts), so the live result can
+   * be compared with replays of the same raw data. Optional and additive.
+   */
+  liveSession?: unknown;
 }
 
 export function emptyContext(): ExerciseContext {

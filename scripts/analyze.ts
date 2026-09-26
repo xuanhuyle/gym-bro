@@ -10,8 +10,11 @@
 import { readFileSync, writeFileSync } from 'fs';
 import { basename } from 'path';
 import { analyzeSamples, AnalysisConfig } from '../src/analysis/analyze';
-import { evaluate, TruthInput } from '../src/analysis/evaluate';
-import { formatSummary, htmlReport } from '../src/analysis/report';
+import { evaluate, evaluateCounts, TruthInput } from '../src/analysis/evaluate';
+import { summarize } from '../src/session/machine';
+import { parseSessionRecord } from '../src/session/record';
+import { replaySession } from '../src/session/replay';
+import { formatEvaluation, formatSummary, htmlReport } from '../src/analysis/report';
 import { contextLabel, parseRecordingJson, parseSamplesCsv, SampleRow } from '../src/recording/schema';
 
 const args = process.argv.slice(2);
@@ -36,6 +39,7 @@ for (const file of files) {
   let title = basename(file);
   let truth: TruthInput | null = null;
   let platform = 'unknown';
+  let phoneSession: string | null = null;
   if (file.endsWith('.csv')) {
     samples = parseSamplesCsv(text).samples;
   } else {
@@ -43,13 +47,30 @@ for (const file of files) {
     samples = rec.samples;
     platform = rec.device.platform;
     title = `${contextLabel(rec.context) || rec.id} — ${rec.startedAt ?? rec.createdAt}`;
+    if (rec.liveSession) {
+      try {
+        const ps = parseSessionRecord(JSON.stringify(rec.liveSession));
+        const sum = summarize(ps.state, ps.state.watermarkSec);
+        phoneSession = `phone live session (${ps.status}, ${ps.state.completion?.reason ?? 'not completed'}): ${sum.sets.map((x) => x.reps).join(' / ') || '—'} reps; rests ${sum.rests.filter((r) => !r.ongoing).map((r) => r.durationSec.toFixed(1)).join(' / ') || '—'} s`;
+      } catch (e) {
+        phoneSession = `phone live session: unreadable (${String(e)})`;
+      }
+    }
     if (rec.userReported?.sets.length) truth = { sets: rec.userReported.sets, restsSec: rec.userReported.restsSec };
   }
   if (truthArg) truth = { sets: truthArg.split(',').map((r) => ({ reps: Number(r) })), restsSec: [] };
   if (truth && restsArg) truth.restsSec = restsArg.split(',').map((r) => (r === '?' ? null : Number(r)));
 
   const res = analyzeSamples(samples, config);
-  const summary = `${title}\nplatform ${platform}\n` + formatSummary(res, truth ? evaluate(res, truth) : null);
+  // Same code path as the phone's live session (windowed detector + state machine), on the same raw data.
+  const replay = replaySession(samples, { detector: { analysis: config } }).state;
+  const rs = summarize(replay, replay.watermarkSec);
+  const replayLines = [
+    `live-session replay (${replay.phase}${replay.completion ? ', ' + replay.completion.reason : ''}): ${rs.sets.map((x) => x.reps).join(' / ') || '—'} reps; rests ${rs.rests.filter((r) => !r.ongoing).map((r) => r.durationSec.toFixed(1)).join(' / ') || '—'} s; ignored movements ${replay.ignored.filter((i) => i.reason === 'isolated').length}`,
+  ];
+  if (truth) replayLines.push(...formatEvaluation(evaluateCounts(rs.sets.map((x) => x.reps), rs.rests.filter((r) => !r.ongoing).map((r) => r.durationSec), truth)).map((l) => '  ' + l));
+  if (phoneSession) replayLines.unshift(phoneSession);
+  const summary = `${title}\nplatform ${platform}\n` + formatSummary(res, truth ? evaluate(res, truth) : null) + '\n\n' + replayLines.join('\n');
   console.log(summary + '\n');
   const out = file.replace(/\.(json|csv)$/i, '') + '.report.html';
   writeFileSync(out, htmlReport(title, res, summary));

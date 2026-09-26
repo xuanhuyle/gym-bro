@@ -18,7 +18,8 @@ const EXERCISES: Record<MovementPattern, readonly string[]> = {
   Other: [],
 };
 
-export function SetupScreen(props: { initial: ExerciseContext; onStart: (c: ExerciseContext) => void; onCancel: () => void }) {
+/** Developer mode: free-text context for raw recordings. */
+export function DebugSetupScreen(props: { initial: ExerciseContext; onStart: (c: ExerciseContext) => void; onCancel: () => void }) {
   const [c, setC] = useState<ExerciseContext>(props.initial);
   const [loadText, setLoadText] = useState(props.initial.loadKg != null ? String(props.initial.loadKg) : '');
   const set = (patch: Partial<ExerciseContext>) => setC((p) => ({ ...p, ...patch }));

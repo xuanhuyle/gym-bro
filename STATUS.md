@@ -1,60 +1,58 @@
 # STATUS.md — what is implemented, tested, blocked, next
 
-_Last updated: 2026-09-26 · algorithm `g0-1` · recording schema v1 · Expo SDK 57_
+_Last updated: 2026-09-26 · analysis `g0-1` (unchanged) · recording schema v1 · session schema v1 · catalogue `cat-1` · Expo SDK 57_
 
 ## Implemented
-- **App (Expo Go, iPhone):** exercise context form (Push/Pull/Legs → region → exercise → variant → kg, machine,
-  notes; remembers the last one) → recording screen (100 Hz DeviceMotion, samples appended to disk every 2 s,
-  screen kept awake, live rate/motion readout, background events logged) → result screen (detected sets,
-  reps, rests, cadence, warnings; "what actually happened" editor that is both ground truth and correction;
-  actual-vs-detected comparison; scrollable debug chart of displacement / vertical accel / horizontal accel /
-  rotation with sets, accepted and rejected reps; full candidate list; re-run analysis; export JSON/CSV via
-  share sheet; delete) → list of recordings (interrupted ones kept and flagged) → import JSON for replay.
-- **Recording format** (`src/recording/schema.ts`): meta JSON + raw CSV on device; one-file JSON export
-  with all raw samples, context, device, events and user-reported truth.
-- **Analysis engine** (`src/analysis/`), pure TS, deterministic:
-  1. clean/sort, gap detection, resample to 50 Hz;
-  2. vertical = −(gravity direction from sensor fusion) → independent of mount orientation;
-  3. band-pass vertical acceleration; double-integrate; velocity and position anchored to 0 during still
-     periods ≥ 6 s (stack resting at bottom), gentle velocity high-pass for integration offsets;
-  4. up/down direction voted from lift-off and landing of each active period (stack-like lobes only),
-     platform prior if undecided (iOS prior −1, from CoreMotion convention — **unverified**);
-  5. hysteresis peak detection with adaptive threshold (35% of 90th-pct swing) → rep candidates;
-  6. rejection: duration 0.5–15 s, verticality ≥ 0.5, rotation ≤ max(15°/s, 3× median), amplitude ≥ 40% median;
-  7. sets = reps separated by > max(6 s, 2× median rep duration); groups < 2 reps rejected as noise;
-  8. rest = end of last rep → start of next set's first rep (5%-of-travel boundaries);
-  9. cadence per set (median period, reps/min, up/down time), flagged reliable if ≥ 3 reps and CV ≤ 0.35;
-     relative amplitude (filtered estimate, **not calibrated ROM**).
-- **Tools:** `npm run analyze` (replay any exported file, compare with truth, HTML debug report),
-  `npm run synth` (synthetic recordings), synthetic generator for tests.
+- **Exercise catalogue** (`src/catalogue/`): 5 body regions, 13 Push/Pull/Legs exercises, 14 stack machines,
+  24 exercise variants, 22 muscles; PRIMARY/SECONDARY contributions per variant; integrity validator.
+  Last-used weight per variant (falls back to same exercise + machine, other variant).
+- **Setup flow**: Body region → Exercise → Machine → Variant (only when there are several) → muscle
+  preview → weight (pre-filled, ±2.5 kg) → START EXERCISE. Remembers the last selection.
+- **Continuous exercise session** (`src/session/`):
+  - pure state machine READY → ACTIVE_SET → REST → … → COMPLETE driven by rep events + watermark ticks;
+    rest timed from the last valid rep's end; new set only after a coherent sequence (≥ 2 reps with gaps
+    ≤ 6 s), whose first rep belongs to the new set; isolated movements ignored and logged; rest revoked if a
+    slow rep proves the set had not ended; final set needs 20 s confirmation (completion is irreversible);
+    `targetSets` configurable (default 3); manual finish; auto-complete after a 15-min rest;
+  - windowed live detector: re-runs the **unchanged** analysis engine on the last 90 s every 2 s, releases
+    reps 2.5 s after they end (none before 20 s of history), de-duplicates by rep span, locks the up/down
+    direction at the first decisive vote;
+  - replay driver (same code path) for recordings and synthetic data; persisted session record
+    (`<id>.session.json`, selection + muscles + weight + state), saved after every meaningful change.
+- **Live session screen**: exercise, kg, per-set reps, live REST timer, SAVED; "Finish exercise now" safety
+  valve; raw 100 Hz recording underneath exactly as before.
+- **Review screen**: live session result (sets, rests, muscles, why it ended) + offline re-analysis + debug
+  chart + ground-truth/correction editor (stored separately in `userReported`) + comparisons + export.
+- **Export JSON** now also embeds the live session result (`liveSession`); import restores it.
+- **CLI** `npm run analyze`: offline analysis + phone's live result (if present) + live-session replay, vs truth.
+- **Developer mode** (switch on Home): the previous free-text raw recorder with manual STOP, and import.
+- Unchanged: sensor acquisition, recording format, analysis engine and its thresholds, debug view.
 
 ## Tested
-- `npm run check`: typecheck + 40 Jest tests pass (see TESTS.md for coverage).
-- iOS JS bundle builds (`expo export --platform ios`, Hermes).
-- Synthetic stress: 298/300 exact at normal tempo; 188/200 on a harder sweep incl. slow tempo.
+- `npm run check`: typecheck + **88 Jest tests** pass (all 40 previous tests kept; see TESTS.md).
+- iOS JS bundle builds (`expo export --platform ios`).
+- Founder: the app runs on a real iPhone and records DeviceMotion at ~100 Hz (acquisition only, no stack).
 
-## NOT yet validated
-- **Nothing has run on a real iPhone yet.** Sensor rate, noise, the sign convention, file writing/export on
-  device and all detection accuracy on real stack motion are unverified until the first recording.
+## NOT yet validated (hardware-validation-pending)
+- Rep counting, set segmentation, rest timing and automatic completion **on a real weight stack**.
+- The live (windowed) detector is less accurate than offline analysis of the whole recording on synthetic
+  data: 86/100 randomised normal-tempo workouts exact live vs 99% offline (errors: ±1 rep at set edges; a
+  rest disturbance occasionally counted into the next set). Not tuned, by design, until real data exists.
+- The iOS up/down sign prior (−1) and the real noise floor of a strapped phone.
 
-## Blocked on the founder (physical actions)
-1. Install Node.js LTS on Windows, create a free Expo account, install Expo Go on the iPhone, run the app.
-2. Perform T0 (optional) and T1 from TESTS.md and send back the exported JSON.
+## Known UX consequences of the current parameters (to revisit with real data)
+- Counts appear ~3–5 s after each rep (settle delay + 2 s processing cadence).
+- REST appears ~13–15 s after the last rep (10 s confirmation + latency) with the timer already running
+  from the last rep; SAVED appears ~23–25 s after the last rep of Set 3.
+- A set must have ≥ 2 reps; a 1-rep "set" is treated as an isolated movement.
+- Start of the session: nothing is released during the first 20 s of recording (reps are released late, not lost).
+- An interrupted session (app killed) keeps its provisional sets but cannot be resumed; start a new one.
 
-## Known limitations / risks (to check against real data)
-- **Slow, smooth reps** (concentric ≥ 2 s, eccentric ≥ 4 s) produce accelerations near the sensor noise
-  floor; long quiet stretches inside a set can be mistaken for rest. Synthetic failure rate ~15% there.
-- **Short travel** (≤ 15–18 cm) reduces margin against noise.
-- A **stack nudge in a short rest** can occasionally be counted as a rep and merge two sets.
-- A **1-rep set** is treated as noise (minimum 2 reps per set).
-- The stack must be still ≥ 6 s before the first and after the last rep for the best displacement estimate.
-- Relative amplitude is an attenuated estimate, not range of motion in cm.
-- Expo Go requires the app in the foreground; the screen must stay on (handled by keep-awake).
-- Mounting: straps/phone must not collide with the machine frame; a loose mount adds rotation (detected
-  and shown as "orientation spread" and rotation in the debug view).
+## Blocked on the founder (physical action)
+The first real weight-stack session — protocol **T1-session** in TESTS.md.
 
 ## Next
-1. Get T1 recording → `npm run analyze` → log results in TESTS.md, verify the iOS sign prior, check real
-   noise floor / sample rate / rotation of a mounted phone, and replace synthetic assumptions with measured ones.
-2. Adjust the algorithm only against real recordings (keep them in `recordings/` as regression fixtures).
-3. T2/T3 for repeatability, tempo, orientation, second machine.
+1. Analyse the T1-session export: phone live result vs offline vs replay vs truth (`npm run analyze`).
+2. Only then adjust detector/session parameters (settle delay, set-end confirmation, coherence rule) and,
+   if needed, the analysis engine — against real recordings kept in `recordings/` as fixtures.
+3. T2/T3: repeatability, tempos, mount orientation, second machine.
