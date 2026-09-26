@@ -220,3 +220,79 @@ describe('input hygiene', () => {
     expect(s0).toEqual(copy);
   });
 });
+
+describe('ARMED: automatic start after context selection (no START button)', () => {
+  const armed = () => createSession({ startArmed: true });
+  const stable = (atSec: number): SessionEvent => ({ type: 'stable', atSec });
+  const handling = (atSec: number): SessionEvent => ({ type: 'handling', atSec });
+
+  it('starts ARMED; placement motion before the phone is still never counts', () => {
+    let s = armed();
+    expect(s.phase).toBe('ARMED');
+    // Two "reps" from carrying/strapping the phone (start before stillness at t=12).
+    s = run(s, [{ type: 'rep', rep: rep(4) }, { type: 'rep', rep: rep(7) }]);
+    expect(s.sets).toHaveLength(0); // ARMED needs more evidence than READY
+    s = run(s, [stable(12)]);
+    expect(s.phase).toBe('READY');
+    expect(s.pending).toHaveLength(0);
+    expect(s.ignored.filter((i) => i.reason === 'placement').flatMap((i) => i.reps)).toHaveLength(2);
+  });
+
+  it('after stillness, a coherent sequence starts Set 1 with the first rep back-filled', () => {
+    const s = run(armed(), [stable(10), ...setOf(20, 10), tick(lastEnd(20, 10) + 10)]);
+    expect(s.sets).toHaveLength(1);
+    expect(s.sets[0].reps).toHaveLength(10);
+    expect(s.sets[0].startSec).toBe(20); // first rep included
+    expect(s.phase).toBe('REST');
+  });
+
+  it('reps released late by the detector but started before stillness are still dropped', () => {
+    let s = run(armed(), [stable(10)]);
+    s = run(s, [{ type: 'rep', rep: rep(8) }, ...setOf(20, 5)]);
+    expect(s.sets[0].reps.map((r) => r.startSec)).toEqual([20, 23, 26, 29, 32]);
+    expect(s.ignored.some((i) => i.reason === 'placement' && i.reps[0].startSec === 8)).toBe(true);
+  });
+
+  it('picking the phone up again in READY re-arms and discards pending movement', () => {
+    let s = run(armed(), [stable(10), { type: 'rep', rep: rep(15) }]);
+    expect(s.pending).toHaveLength(1);
+    s = run(s, [handling(17)]);
+    expect(s.phase).toBe('ARMED');
+    expect(s.pending).toHaveLength(0);
+    s = run(s, [stable(25), ...setOf(30, 8)]);
+    expect(s.sets[0].reps).toHaveLength(8);
+    expect(s.sets[0].startSec).toBe(30);
+  });
+
+  it('without detectable stillness, a longer coherent run still starts Set 1, first rep included', () => {
+    let s = run(armed(), [{ type: 'rep', rep: rep(20) }, { type: 'rep', rep: rep(23) }]);
+    expect(s.phase).toBe('ARMED');
+    s = run(s, [{ type: 'rep', rep: rep(26) }]);
+    expect(s.phase).toBe('ACTIVE_SET');
+    expect(s.sets[0].startSec).toBe(20);
+    expect(s.log.some((l) => l.event === 'started-without-stability')).toBe(true);
+  });
+
+  it('stillness and handling events do not affect a workout in progress', () => {
+    const end = lastEnd(20, 6);
+    let s = run(armed(), [stable(10), ...setOf(20, 6), handling(end + 1), stable(end + 3)]);
+    expect(s.phase).toBe('ACTIVE_SET');
+    s = run(s, [tick(end + 10), handling(end + 12)]);
+    expect(s.phase).toBe('REST');
+  });
+
+  it('a full ARMED → 3 sets → COMPLETE session survives reload while ARMED', () => {
+    const mid = run(armed(), [{ type: 'rep', rep: rep(3) }]);
+    const reloaded = restoreSession(serializeSession(mid));
+    expect(reloaded.phase).toBe('ARMED');
+    let s = run(reloaded, [stable(10)]);
+    let t = 20;
+    for (const [i, n] of [10, 12, 15].entries()) {
+      s = run(s, setOf(t, n));
+      s = run(s, [tick(lastEnd(t, n) + (i === 2 ? 20 : 10))]);
+      t = lastEnd(t, n) + 40;
+    }
+    expect(s.phase).toBe('COMPLETE');
+    expect(reps(s)).toEqual([10, 12, 15]);
+  });
+});

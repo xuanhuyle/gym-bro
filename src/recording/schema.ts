@@ -75,6 +75,8 @@ export interface UserReported {
   sets: { reps: number }[];
   /** Optional measured rest durations between consecutive sets, seconds. */
   restsSec: (number | null)[];
+  /** Corrected load, kg (optional, additive: absent = the recorded load stands). */
+  loadKg?: number | null;
   notes: string;
   updatedAt: string;
 }

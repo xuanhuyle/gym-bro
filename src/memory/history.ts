@@ -60,7 +60,7 @@ export function entryFromSession({ session, userReported }: HistoryInput): Train
     exerciseId: sel.exerciseId,
     equipmentId: sel.equipmentId,
     regionId: sel.regionId,
-    loadKg: session.loadKg,
+    loadKg: userReported?.loadKg != null ? userReported.loadKg : session.loadKg,
     reps,
     restsSec,
     source: corrected ? 'corrected' : 'detected',

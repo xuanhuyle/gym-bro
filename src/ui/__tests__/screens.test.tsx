@@ -101,38 +101,30 @@ describe('HomeScreen', () => {
   });
 });
 
-describe('ExerciseSetupScreen', () => {
-  it('walks region → exercise → machine → variant, shows muscles, pre-fills the last weight and starts', async () => {
+describe('ExerciseSetupScreen (no START button: choosing the variant arms)', () => {
+  it('walks region → exercise → machine → variant and arms automatically on the variant', async () => {
     const { ExerciseSetupScreen } = require('../screens/ExerciseSetupScreen');
-    const { rememberWeight, emptyWeightBook } = require('../../catalogue/weightMemory');
-    const { catalogue } = require('../../catalogue/catalogue');
-    const weights = rememberWeight(emptyWeightBook(), catalogue.variant('lat_pulldown.machine.wide_overhand'), 35, '2026-09-01T10:00:00Z');
-    const onStart = jest.fn();
-    await render(<ExerciseSetupScreen weights={weights} onStart={onStart} onCancel={jest.fn()} />);
+    const onArm = jest.fn();
+    await render(<ExerciseSetupScreen onArm={onArm} onCancel={jest.fn()} />);
+    expect(screen.queryByText('START EXERCISE')).toBeNull();
     expect(screen.queryByText('Lat Pulldown')).toBeNull();
     await fireEvent.press(screen.getByText('Back'));
     await fireEvent.press(screen.getByText('Lat Pulldown'));
-    // Only one compatible machine: selected automatically.
+    // Only one compatible machine: selected automatically; three grips → not armed yet.
     expect(screen.getByText('Lat pulldown machine')).toBeTruthy();
+    expect(onArm).not.toHaveBeenCalled();
     await fireEvent.press(screen.getByText('Wide overhand grip'));
-    expect(screen.getByText('Latissimus dorsi')).toBeTruthy();
-    expect(screen.getByText(/Teres major/)).toBeTruthy();
-    expect(screen.getByLabelText('Weight in kg').props.value).toBe('35');
-    await fireEvent.press(screen.getByText('+2.5'));
-    await fireEvent.press(screen.getByText('START EXERCISE'));
-    expect(onStart).toHaveBeenCalledWith({ regionId: 'back', variantId: 'lat_pulldown.machine.wide_overhand', loadKg: 37.5 });
+    expect(onArm).toHaveBeenCalledTimes(1);
+    expect(onArm).toHaveBeenCalledWith({ regionId: 'back', variantId: 'lat_pulldown.machine.wide_overhand' });
   });
 
-  it('cannot start before a weight is set', async () => {
+  it('arms as soon as the exercise is unambiguous (single machine and variant)', async () => {
     const { ExerciseSetupScreen } = require('../screens/ExerciseSetupScreen');
-    const { emptyWeightBook } = require('../../catalogue/weightMemory');
-    const onStart = jest.fn();
-    await render(<ExerciseSetupScreen weights={emptyWeightBook()} onStart={onStart} onCancel={jest.fn()} />);
+    const onArm = jest.fn();
+    await render(<ExerciseSetupScreen onArm={onArm} onCancel={jest.fn()} />);
     await fireEvent.press(screen.getByText('Legs'));
     await fireEvent.press(screen.getByText('Leg Extension'));
-    expect(screen.getByText('Quadriceps')).toBeTruthy();
-    await fireEvent.press(screen.getByText('START EXERCISE'));
-    expect(onStart).not.toHaveBeenCalled();
+    expect(onArm).toHaveBeenCalledWith({ regionId: 'legs', variantId: 'leg_extension.machine' });
   });
 });
 
@@ -147,7 +139,16 @@ describe('ExerciseSessionScreen', () => {
     const { ExerciseSessionScreen } = require('../screens/ExerciseSessionScreen');
     const { catalogue } = require('../../catalogue/catalogue');
     const { makeSelection, contextFromSelection } = require('../../session/record');
-    const { samples } = generateWorkout({ seed: 3, sets: [{ reps: 10 }, { reps: 12 }, { reps: 15 }], restsSec: [20, 20], leadOutSec: 40, userAccelSign: -1 });
+    // Starts in the user's hand, carried and strapped to the stack (placement), then 3 sets.
+    const { samples } = generateWorkout({
+      seed: 3,
+      sets: [{ reps: 10 }, { reps: 12 }, { reps: 15 }],
+      restsSec: [20, 20],
+      leadInSec: 16,
+      leadOutSec: 40,
+      userAccelSign: -1,
+      placement: { handSec: 4, moveSec: 3, angleDeg: 90 },
+    });
     let i = 0;
     let clock = 0;
     mockStream.drain.mockImplementation(() => {
@@ -161,15 +162,22 @@ describe('ExerciseSessionScreen', () => {
     await render(<ExerciseSessionScreen selection={selection} loadKg={35} context={contextFromSelection(catalogue, selection, 35)} onExit={jest.fn()} />);
     await act(async () => {});
     expect(screen.getByText('LAT PULLDOWN')).toBeTruthy();
-    expect(screen.getByText('35 kg')).toBeTruthy();
+    // Armed on arrival: no START button anywhere, weight resumed and editable.
+    expect(screen.getByText('ARMED')).toBeTruthy();
+    expect(screen.queryByText('START EXERCISE')).toBeNull();
+    expect(screen.getByLabelText('Weight in kg').props.value).toBe('35');
+    let sawReady = false;
     let sawRest = false;
     for (let k = 0; k < 150 && !screen.queryByText('SAVED ✓'); k++) {
       await act(async () => {
         jest.advanceTimersByTime(2000);
       });
+      if (screen.queryByText('READY')) sawReady = true;
       if (screen.queryAllByText('REST').length) sawRest = true;
     }
+    expect(sawReady).toBe(true);
     expect(sawRest).toBe(true);
+    expect(screen.getByText('35 kg')).toBeTruthy();
     expect(screen.getByText('SAVED ✓')).toBeTruthy();
     expect(screen.getByText('SET 3')).toBeTruthy();
     const saves = mockStore.saveSession.mock.calls.map((c: unknown[]) => c[0] as { status: string; state: { sets: { reps: unknown[] }[] } });
@@ -208,17 +216,35 @@ describe('training memory in the UX', () => {
     mk('c', 'lat_pulldown.machine.wide_overhand', '2026-09-19T18:00:00', 40, [12, 11, 10], [65, 72]),
   ];
 
-  it('before starting, shows region recency, LAST TIME, PREVIOUS and resumes the exact-variant weight', async () => {
-    const { ExerciseSetupScreen } = require('../screens/ExerciseSetupScreen');
+  async function renderArmed(variantId: string, hist: typeof history, extra: Record<string, unknown> = {}) {
+    const { act } = require('@testing-library/react-native');
+    const { ExerciseSessionScreen } = require('../screens/ExerciseSessionScreen');
     const { emptyWeightBook } = require('../../catalogue/weightMemory');
-    const onStart = jest.fn();
-    await render(<ExerciseSetupScreen weights={emptyWeightBook()} history={history} now={NOW} onStart={onStart} onCancel={jest.fn()} />);
+    const { resumeWeight } = require('../../memory/queries');
+    const { makeSelection, contextFromSelection } = require('../../session/record');
+    const selection = makeSelection(catalogue, 'back', variantId);
+    const resume = resumeWeight(hist, emptyWeightBook(), catalogue.variant(variantId));
+    const loadKg = resume?.kg ?? null;
+    await render(
+      <ExerciseSessionScreen selection={selection} loadKg={loadKg} context={contextFromSelection(catalogue, selection, loadKg)} resume={resume} history={hist} now={NOW} onExit={jest.fn()} {...extra} />,
+    );
+    await act(async () => {});
+  }
+
+  it('selection shows region recency, the machine\'s last use and each grip\'s last performance before arming', async () => {
+    const { ExerciseSetupScreen } = require('../screens/ExerciseSetupScreen');
+    await render(<ExerciseSetupScreen history={history} now={NOW} onArm={jest.fn()} onCancel={jest.fn()} />);
     await fireEvent.press(screen.getByText('Back'));
     expect(screen.getByText(/Back last trained 19 Sep/)).toBeTruthy();
     await fireEvent.press(screen.getByText('Lat Pulldown'));
-    // Machine chosen automatically; before a grip is chosen, the machine's last use is recalled.
     expect(screen.getByText(/Last on this machine: Lat Pulldown · Wide overhand grip — 19 Sep/)).toBeTruthy();
-    await fireEvent.press(screen.getByText('Wide overhand grip'));
+    expect(screen.getByText('Wide overhand grip — 19 Sep · 40 kg · 12/11/10')).toBeTruthy();
+    expect(screen.getByText('Close neutral grip — 16 Sep · 45 kg · 10/10/10')).toBeTruthy();
+  });
+
+  it('armed screen: LAST TIME, PREVIOUS and the exact-variant weight, before the first rep', async () => {
+    await renderArmed('lat_pulldown.machine.wide_overhand', history);
+    expect(screen.getByText('ARMED')).toBeTruthy();
     expect(screen.getByText(/LAST TIME — 19 Sep/)).toBeTruthy();
     expect(screen.getByText('12 · 11 · 10 reps')).toBeTruthy();
     expect(screen.getByText('Rest: 1:05 · 1:12')).toBeTruthy();
@@ -226,21 +252,36 @@ describe('training memory in the UX', () => {
     expect(screen.getByText(/\+2\.5 kg/)).toBeTruthy();
     expect(screen.getByLabelText('Weight in kg').props.value).toBe('40');
     expect(screen.getByText(/Last time: 40 kg · 12\/11\/10/)).toBeTruthy();
-    await fireEvent.press(screen.getByText('START EXERCISE'));
-    expect(onStart).toHaveBeenCalledWith({ regionId: 'back', variantId: 'lat_pulldown.machine.wide_overhand', loadKg: 40 });
+    expect(screen.getByText(/Primary: Latissimus dorsi/)).toBeTruthy();
   });
 
   it('a weight from another grip is shown as a fallback, never as "last time"', async () => {
-    const { ExerciseSetupScreen } = require('../screens/ExerciseSetupScreen');
-    const { emptyWeightBook } = require('../../catalogue/weightMemory');
-    await render(<ExerciseSetupScreen weights={emptyWeightBook()} history={history} now={NOW} onStart={jest.fn()} onCancel={jest.fn()} />);
-    await fireEvent.press(screen.getByText('Back'));
-    await fireEvent.press(screen.getByText('Lat Pulldown'));
-    await fireEvent.press(screen.getByText('Underhand (supinated) grip'));
+    await renderArmed('lat_pulldown.machine.underhand', history);
     expect(screen.getByText(/No previous session with this exercise, machine and variant/)).toBeTruthy();
     expect(screen.getByLabelText('Weight in kg').props.value).toBe('40');
     expect(screen.getByText(/Not this variant — pre-filled from Wide overhand grip/)).toBeTruthy();
     expect(screen.queryByText(/^Last time:/)).toBeNull();
+  });
+
+  it('with no history, arming still works and says so; the weight can be set while armed', async () => {
+    const onWeightChange = jest.fn();
+    await renderArmed('lat_pulldown.machine.wide_overhand', [], { onWeightChange });
+    expect(screen.getByText(/No previous weight/)).toBeTruthy();
+    expect(screen.getByLabelText('Weight in kg').props.value).toBe('');
+    await fireEvent.changeText(screen.getByLabelText('Weight in kg'), '42.5');
+    expect(onWeightChange).toHaveBeenLastCalledWith(42.5);
+    const saves = mockStore.saveSession.mock.calls.map((c: unknown[]) => c[0] as { loadKg: number | null });
+    expect(saves[saves.length - 1].loadKg).toBe(42.5);
+    expect(mockStore.updateMeta).toHaveBeenCalledWith('rec-1', expect.objectContaining({ context: expect.objectContaining({ loadKg: 42.5 }) }));
+  });
+
+  it('"Change exercise" before Set 1 discards the armed recording', async () => {
+    const onChangeExercise = jest.fn();
+    await renderArmed('lat_pulldown.machine.wide_overhand', history, { onChangeExercise });
+    await fireEvent.press(screen.getByText('Change exercise'));
+    expect(mockStream.stop).toHaveBeenCalled();
+    expect(mockStore.deleteRecording).toHaveBeenCalledWith('rec-1');
+    expect(onChangeExercise).toHaveBeenCalled();
   });
 
   it('Home offers one-tap reopen of recent exercises with their last performance', async () => {
@@ -254,14 +295,14 @@ describe('training memory in the UX', () => {
     expect(onResume).toHaveBeenCalledWith({ regionId: 'back', variantId: 'lat_pulldown.machine.wide_overhand' });
   });
 
-  it('with no history, setup and home still work and say so', async () => {
+  it('with no history, selection says so', async () => {
     const { ExerciseSetupScreen } = require('../screens/ExerciseSetupScreen');
-    const { emptyWeightBook } = require('../../catalogue/weightMemory');
-    await render(<ExerciseSetupScreen weights={emptyWeightBook()} history={[]} now={NOW} onStart={jest.fn()} onCancel={jest.fn()} />);
+    await render(<ExerciseSetupScreen history={[]} now={NOW} onArm={jest.fn()} onCancel={jest.fn()} />);
     await fireEvent.press(screen.getByText('Legs'));
     expect(screen.getByText('Legs: not trained yet.')).toBeTruthy();
-    await fireEvent.press(screen.getByText('Leg Extension'));
+    await fireEvent.press(screen.getByText('Leg Curl'));
+    // Two machines → user picks one; its single variant arms immediately.
+    await fireEvent.press(screen.getByText('Seated leg curl machine'));
     expect(screen.getByText('First time on this machine.')).toBeTruthy();
-    expect(screen.getByText(/No previous weight/)).toBeTruthy();
   });
 });

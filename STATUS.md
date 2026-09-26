@@ -12,13 +12,20 @@ layer: capture infrastructure (enabling) → training memory (the product today)
 - **Recording format**: meta JSON + raw CSV; JSON export (with the live session result embedded), import, replay.
 - **Offline analysis engine** (`src/analysis/`, `g0-1`, unchanged): gravity-referenced vertical axis,
   anchored double integration, hysteresis rep detection with rejection rules, set grouping, rests, cadence.
-- **Continuous session** (`src/session/`, unchanged in this iteration): pure state machine READY → ACTIVE_SET ⇄
-  REST → COMPLETE (rest timed from the last rep, coherent sequence to start a set, isolated movements ignored,
-  configurable set count, auto-complete, manual finish), windowed live adapter around the unchanged engine,
-  replay driver, session record persisted after every meaningful change.
+- **Continuous session** (`src/session/`): pure state machine **ARMED → READY → ACTIVE_SET ⇄ REST → COMPLETE**
+  (rest timed from the last rep, coherent sequence to start a set, isolated movements ignored, configurable
+  set count, auto-complete, manual finish). **No START button**: choosing the exercise variant (or tapping a
+  recent exercise on Home) arms acquisition. ARMED ignores placement motion; a still phone → READY; Set 1
+  starts on a coherent rep sequence with all its reps back-filled (first included); handling before Set 1
+  re-arms; if stillness is never detected, 3 coherent valid reps still start Set 1. Adapters: windowed rep
+  detector around the unchanged engine (from READY on it analyses only data after the still moment, so
+  placement cannot skew its statistics or up/down vote; candidates truncated at the data edge are skipped)
+  and a stillness/handling monitor (RMS of |user acceleration| and |rotation rate|). Replay driver; session
+  record persisted after every meaningful change.
 - **Catalogue** (`src/catalogue/`): 5 regions, 13 Push/Pull/Legs exercises, 14 stack machines, 24 variants,
   22 muscles, PRIMARY/SECONDARY contributions; the key that makes memory aggregate beyond one exercise.
-- **Screens**: setup, live session (SET/REST/SAVED), review with correction editor, debug chart, developer mode.
+- **Screens**: selection (auto-arms), live session (ARMED/READY with memory + editable weight + "Change exercise"; then
+  SET/REST/SAVED), review with correction editor (now incl. weight), debug chart, developer mode.
 - **CLI**: `npm run analyze` (offline + phone live result + live replay vs truth), `npm run synth`.
 
 ## 2. Training memory (REMEMBER / RESUME / COMPARE) — implemented, local only
@@ -39,11 +46,12 @@ layer: capture infrastructure (enabling) → training memory (the product today)
 - **In the UX**:
   - Home: "Continue where you left off" — recent variants with last performance; one tap reopens setup fully
     pre-selected with the weight resumed.
-  - Setup: region → last trained + 7/30-day sessions/sets; machine → what was last done on it; variant →
-    LAST TIME (date, kg, reps, rests, source) and PREVIOUS with the change; weight pre-filled from memory with
-    "Last time: 40 kg · 12/11/10" beside it, or a clearly labelled fallback.
+  - Selection: region → last trained + 7/30-day sessions/sets; machine → what was last done on it and each
+    grip's last performance. Armed screen: LAST TIME (date, kg, reps, rests, source) and PREVIOUS with the
+    change; weight pre-filled from memory with "Last time: 40 kg · 12/11/10" beside it, or a labelled fallback.
   - Review: "Compared with the previous session" (same variant only).
-- Unchanged convenience: the weight book (weight chosen at START) remains as the second-priority resume source.
+- The weight book (weight chosen when arming / edited while armed) remains the second-priority resume source.
+- A corrected weight (review screen) replaces the recorded one in memory.
 
 ## 3. Longitudinal analysis (UNDERSTAND) — building blocks only
 - Available as pure queries: session diff for the same variant; period vs previous period counts
@@ -53,13 +61,21 @@ layer: capture infrastructure (enabling) → training memory (the product today)
 
 ## 4. Hardware validation still pending
 - Rep counting, set segmentation, rest timing and automatic completion **on a real weight stack**.
-- Live (windowed) detection vs offline on synthetic data: 86/100 vs 99% exact; not tuned before real data.
+- **Arming on a real phone**: stillness thresholds (still = RMS |user accel| ≤ 0.15 m/s² and RMS rotation
+  ≤ 4 °/s for 2 s; handling = RMS rotation > 30 °/s over 0.5 s) are synthetic-only assumptions. Risks: a
+  vibrating environment never reaching "still" (fallback: 3 coherent reps), or a wobbly mount rotating enough
+  to look like handling before Set 1.
+- Live (windowed) detection on synthetic data: 84/100 exact without placement and 85/100 with a realistic
+  placement at the start (offline whole-recording analysis: 99%). Not tuned before real data.
+- The engine needs ~6 s of stillness before the first rep for its best estimate; the READY screen asks the user
+  to wait ~5 s. Starting a set 1–2 s after the phone settles can cost a rep (seen on synthetic data).
 - iOS up/down sign prior (−1) and the real noise floor of a strapped phone.
-- Known UX timing of current parameters: counts ~3–5 s after each rep; REST shown ~13–15 s after the last
-  rep (timer already running from the last rep); SAVED ~23–25 s after the last rep of Set 3; nothing released
-  in the first 20 s; ≥ 2 reps per set; interrupted sessions keep provisional sets but cannot be resumed.
+- Known UX timing of current parameters: counts ~3–5 s after each rep (none before 20 s of clean history
+  after READY — released late, not lost); REST shown ~13–15 s after the last rep (timer already running from
+  the last rep); SAVED ~23–25 s after the last rep of Set 3; ≥ 2 reps per set; interrupted sessions keep
+  provisional sets but cannot be resumed.
 - Consequence for memory: until validated, the history is only as good as capture + the user's corrections.
-  The review screen's correction editor is the safeguard.
+  The review screen's correction editor (reps, rests, weight) is the safeguard.
 
 ## Tested
 - `npm run check`: typecheck + **118 Jest tests** pass (all previous 88 kept; see TESTS.md).
@@ -67,8 +83,9 @@ layer: capture infrastructure (enabling) → training memory (the product today)
 - Founder: app runs on a real iPhone, DeviceMotion ≈ 100 Hz (no stack yet).
 
 ## Blocked on the founder (physical action)
-The first real weight-stack session — protocol **T1-session** in TESTS.md. After it, the session appears in
-"Continue where you left off" and as LAST TIME the next time the same exercise variant is chosen.
+The first real weight-stack session — protocol **T1-session** in TESTS.md (now also the first test of automatic
+arming: choose the exercise with the phone in hand, strap it, never press START). Afterwards the session appears in
+"Continue where you left off" and as LAST TIME the next time the same exercise variant is armed.
 
 ## Next
 1. Analyse the T1-session export: phone live result vs offline vs replay vs truth (`npm run analyze`).

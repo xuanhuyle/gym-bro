@@ -305,6 +305,16 @@ describe('history from saved sessions', () => {
     expect(different.restsSec).toEqual([null]);
   });
 
+  it('a corrected weight replaces the recorded one in memory', () => {
+    const e = entryFromSession({
+      session: record(completedState([10, 10, 10]), 'complete', 'x'),
+      userReported: { sets: [{ reps: 10 }, { reps: 10 }, { reps: 10 }], restsSec: [], loadKg: 42.5, notes: '', updatedAt: '' },
+    })!;
+    expect(e.loadKg).toBe(42.5);
+    const kept = entryFromSession({ session: record(completedState([10, 10, 10]), 'complete', 'x'), userReported: { sets: [{ reps: 10 }], restsSec: [], notes: '', updatedAt: '' } })!;
+    expect(kept.loadKg).toBe(40);
+  });
+
   it('interrupted sessions are not part of the memory', () => {
     const h = buildHistory([
       { session: record(completedState([10, 10, 10]), 'complete', '2026-09-19T18:00:00Z'), userReported: null },

@@ -21,9 +21,9 @@ src/recording/    schema.ts: the recording format (JSON/CSV). Pure TS. The contr
 src/analysis/     pure, deterministic TS rep/set engine for a guided weight stack. No React Native / Expo imports.
 src/catalogue/    pure data + queries: BodyRegion, Exercise, Equipment, ExerciseVariant, Muscle, contributions
                   (PRIMARY/SECONDARY only, no percentages); last-used weight per variant.
-src/session/      pure exercise-session state machine (READY → ACTIVE_SET ⇄ REST → COMPLETE) fed by rep
-                  events + watermark ticks; windowed adapter running the unchanged analysis engine live;
-                  replay driver; persisted session record.
+src/session/      pure exercise-session state machine (ARMED → READY → ACTIVE_SET ⇄ REST → COMPLETE) fed by
+                  rep events, watermark ticks and stable/handling events; adapters: windowed rep detector
+                  (unchanged analysis engine) + stillness monitor; replay driver; persisted session record.
 src/memory/       pure training-memory layer: history entries from completed sessions (+ user corrections),
                   queries for variant / machine / body-region / muscle memory, resume weight, session and
                   period comparisons, formatting. No React.
@@ -49,8 +49,11 @@ recordings/       real recordings returned from the phone (raw data is precious:
 - Facts, not scores: no fitness/progress/hypertrophy/region scores, no activation percentages; keep
   PRIMARY (direct) and SECONDARY (contributing) muscle exposure separate.
 - Fallbacks are labelled (e.g. a weight borrowed from another grip is not "last time").
-- History is contextual: surface it where the decision is made (setup, weight field, review), not only in
-  dashboards. Keep the live recording UI minimal.
+- History is contextual: surface it where the decision is made (selection, armed screen, weight, review), not
+  only in dashboards. Keep the live recording UI minimal.
+- No START/STOP in the normal flow: completing the exercise context arms acquisition; placement motion is
+  ignored; Set 1 starts on a coherent rep sequence (back-filled); completion is automatic. Do not add
+  mandatory taps between context selection and completion ("Finish now" / "Change exercise" are escapes).
 - Longitudinal analysis = "this session/period vs the previous comparable one". Build on `src/memory/`.
 - Raw samples are stored exactly as the sensor reports them (except t re-based to 0). Never store only
   derived data: the point is to re-run improved algorithms on old recordings.

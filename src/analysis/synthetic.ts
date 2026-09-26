@@ -104,6 +104,12 @@ export interface SyntheticSpec {
   orientation?: Mat3;
   /** Rep-to-rep variability (fraction). */
   variability?: number;
+  /**
+   * Recording starts with the phone in the user's hand (tilted, hand tremor),
+   * then it is carried/rotated onto the stack and strapped (strong rotation,
+   * jerks), then it is still. Models arming right after context selection.
+   */
+  placement?: { handSec: number; moveSec: number; angleDeg: number };
 }
 
 export interface SyntheticTruth {
@@ -152,7 +158,14 @@ export function generateWorkout(spec: SyntheticSpec): { samples: SampleRow[]; tr
   const moves: Move[] = [];
   const truthSets: SyntheticTruth['sets'] = [];
   let t = spec.leadInSec ?? 8;
-  const restWindows: [number, number][] = [[1, t - 1]];
+  const pl = spec.placement;
+  const placementEnd = pl ? pl.handSec + pl.moveSec : 0;
+  if (pl && placementEnd + 2 > t) throw new Error('leadInSec must leave the phone still after placement');
+  const restWindows: [number, number][] = [[placementEnd + 1, t - 1]];
+  // Draw placement randomness only when used, so existing seeds keep generating identical data.
+  const plAxis: Vec3 = pl ? randomUnit(rnd) : [0, 0, 1];
+  const plDir: Vec3 = pl ? randomUnit(rnd) : [0, 0, 1];
+  const plTheta0 = pl ? (pl.angleDeg * Math.PI) / 180 : 0;
   spec.sets.forEach((s, si) => {
     const up = s.upSec ?? 1.2;
     const down = s.downSec ?? 1.6;
@@ -229,6 +242,18 @@ export function generateWorkout(spec: SyntheticSpec): { samples: SampleRow[]; tr
     // Disturbances.
     let R = R0;
     let rr: Vec3 = [0, 0, 0];
+    if (pl && ts < placementEnd) {
+      const inHand = ts < pl.handSec;
+      const tau = inHand ? 0 : (ts - pl.handSec) / pl.moveSec;
+      const theta = plTheta0 * (1 - (3 * tau * tau - 2 * tau * tau * tau));
+      R = mul(R0, axisAngle(plAxis, theta));
+      const rate = inHand ? 0 : ((-plTheta0 * 6 * tau * (1 - tau)) / pl.moveSec) * (180 / Math.PI);
+      rr = [plAxis[0] * rate + 5 * gauss(rnd), plAxis[1] * rate + 5 * gauss(rnd), plAxis[2] * rate + 5 * gauss(rnd)];
+      const tremor = 0.3;
+      const carry = inHand ? 0 : 2.5 * Math.sin(Math.PI * tau) * Math.sin(2 * Math.PI * 1.5 * (ts - pl.handSec));
+      const tug = !inHand && tau > 0.6 && Math.sin(2 * Math.PI * 4 * ts) > 0.9 ? 4 : 0;
+      for (let q = 0; q < 3; q++) aw[q] += tremor * gauss(rnd) + (carry + tug) * plDir[q];
+    }
     for (const d of dists) {
       if (ts < d.t0 || ts > d.t0 + d.T) continue;
       const tau = (ts - d.t0) / d.T;

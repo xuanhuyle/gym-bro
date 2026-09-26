@@ -253,6 +253,8 @@ function TruthEditor({ rec, res, liveReps, onSaved }: { rec: Recording; res: Ana
   const [reps, setReps] = useState<string[]>(init ? init.sets.map((s) => String(s.reps)) : ['']);
   const [rests, setRests] = useState<string[]>(init ? init.restsSec.map((r) => (r == null ? '' : String(r))) : []);
   const [notes, setNotes] = useState(init?.notes ?? '');
+  const recordedLoad = init?.loadKg != null ? init.loadKg : rec.context.loadKg;
+  const [loadText, setLoadText] = useState(recordedLoad != null ? String(recordedLoad) : '');
   const [dirty, setDirty] = useState(false);
 
   const setCount = (n: number) => {
@@ -271,9 +273,15 @@ function TruthEditor({ rec, res, liveReps, onSaved }: { rec: Recording; res: Ana
       Alert.alert('Enter the reps for every set');
       return;
     }
+    const load = loadText.trim() === '' ? null : Number(loadText.replace(',', '.'));
+    if (load != null && !(Number.isFinite(load) && load >= 0)) {
+      Alert.alert('Weight must be a number of kg');
+      return;
+    }
     const u: UserReported = {
       sets,
       restsSec: rests.map((r) => (r.trim() === '' || !Number.isFinite(Number(r)) ? null : Number(r))),
+      loadKg: load,
       notes,
       updatedAt: new Date().toISOString(),
     };
@@ -289,6 +297,19 @@ function TruthEditor({ rec, res, liveReps, onSaved }: { rec: Recording; res: Ana
   return (
     <Card title="What actually happened (ground truth / correction)">
       <Text style={[styles.muted, { marginBottom: 8 }]}>Enter what you really did. This corrects the log and is what detection is compared against.</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+        <Text style={[styles.body, { width: 110 }]}>Weight (kg)</Text>
+        <TextInput
+          accessibilityLabel="Actual weight in kg"
+          value={loadText}
+          onChangeText={(v) => {
+            setLoadText(v);
+            setDirty(true);
+          }}
+          keyboardType="decimal-pad"
+          style={[styles.input, { width: 80 }]}
+        />
+      </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
         <Text style={styles.body}>Sets: {reps.length}  </Text>
         <Button title="−" kind="secondary" onPress={() => reps.length > 1 && setCount(reps.length - 1)} style={{ paddingVertical: 4, marginRight: 6 }} />

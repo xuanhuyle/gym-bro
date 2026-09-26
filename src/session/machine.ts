@@ -1,5 +1,6 @@
 /**
- * Exercise-session state machine: READY → ACTIVE_SET → REST → ACTIVE_SET → … → COMPLETE.
+ * Exercise-session state machine:
+ *   ARMED → READY → ACTIVE_SET → REST → ACTIVE_SET → … → COMPLETE.
  *
  * Pure and deterministic (a reducer over plain JSON state), independent of
  * React and of sensor acquisition. It consumes:
@@ -8,8 +9,25 @@
  *   - `tick`   a watermark: "every rep that ENDS before this time has been
  *              delivered". Set-end confirmation is measured on the watermark,
  *              so a slow detector cannot make the machine declare REST early;
+ *   - `stable`   the phone has been still since `atSec` (from the stillness
+ *                monitor in the adapter layer — no signal processing here);
+ *   - `handling` the phone is being handled/placed (strong rotation);
  *   - `finish` the user ends the exercise manually.
  * All times are seconds on the recording's clock.
+ *
+ * Arming (config.startArmed, the product flow: acquisition starts as soon as
+ * the exercise context is chosen, with the phone still in the user's hand)
+ *  - ARMED: the phone is being carried and strapped to the stack. Movements are
+ *    placement, not reps. A `stable` event moves to READY; reps that STARTED
+ *    before the stable moment are dropped as "placement", later ones are kept.
+ *  - READY: waiting for Set 1. `handling` (phone picked up again) returns to
+ *    ARMED and drops pending reps. Reps starting before the stable moment
+ *    (released late by the detector) are still dropped as placement.
+ *  - If stillness is never observed (e.g. a vibrating floor), a longer coherent
+ *    run (armedFallbackReps valid reps) starts Set 1 from ARMED, so the session
+ *    cannot stall.
+ *  - Whichever way Set 1 starts, all reps of the confirming sequence, including
+ *    the first one, are back-filled into it.
  *
  * Rules
  *  - Reps whose gap to the previous rep is ≤ maxRepGapSec belong to the same set.
@@ -43,6 +61,10 @@ export interface SessionConfig {
   completeConfirmSec: number;
   /** Complete automatically if a rest lasts this long (null = never). */
   maxRestSec: number | null;
+  /** Start in ARMED (placement motion ignored until the phone is still). */
+  startArmed: boolean;
+  /** Coherent valid reps that start Set 1 from ARMED when stillness was never observed. */
+  armedFallbackReps: number;
 }
 
 export const DEFAULT_SESSION_CONFIG: SessionConfig = {
@@ -52,9 +74,11 @@ export const DEFAULT_SESSION_CONFIG: SessionConfig = {
   setEndConfirmSec: 10,
   completeConfirmSec: 20,
   maxRestSec: 900,
+  startArmed: false,
+  armedFallbackReps: 3,
 };
 
-export type SessionPhase = 'READY' | 'ACTIVE_SET' | 'REST' | 'COMPLETE';
+export type SessionPhase = 'ARMED' | 'READY' | 'ACTIVE_SET' | 'REST' | 'COMPLETE';
 
 export interface SessionSet {
   index: number;
@@ -86,20 +110,40 @@ export interface SessionState {
   rests: SessionRest[];
   /** Reps seen in READY/REST that do not (yet) form a coherent sequence. */
   pending: RepEvent[];
-  ignored: { reps: RepEvent[]; reason: 'isolated' | 'late' | 'duplicate'; atSec: number }[];
+  ignored: { reps: RepEvent[]; reason: 'isolated' | 'late' | 'duplicate' | 'placement'; atSec: number }[];
+  /** Start of the current still period after placement (null while ARMED). Optional in old records. */
+  stableSinceSec?: number | null;
   watermarkSec: number;
   completion: { atSec: number; reason: CompletionReason } | null;
   log: { atSec: number; event: string; detail?: string }[];
 }
 
-export type SessionEvent = { type: 'rep'; rep: RepEvent } | { type: 'tick'; watermarkSec: number } | { type: 'finish'; atSec: number };
+export type SessionEvent =
+  | { type: 'rep'; rep: RepEvent }
+  | { type: 'tick'; watermarkSec: number }
+  | { type: 'stable'; atSec: number }
+  | { type: 'handling'; atSec: number }
+  | { type: 'finish'; atSec: number };
 
 export function createSession(config: Partial<SessionConfig> = {}): SessionState {
   const cfg = { ...DEFAULT_SESSION_CONFIG, ...config };
   if (!(cfg.targetSets >= 1)) throw new Error('targetSets must be ≥ 1');
   if (!(cfg.minRepsToStartSet >= 1)) throw new Error('minRepsToStartSet must be ≥ 1');
   if (cfg.setEndConfirmSec < cfg.maxRepGapSec) throw new Error('setEndConfirmSec must be ≥ maxRepGapSec');
-  return { version: 1, config: cfg, phase: 'READY', sets: [], rests: [], pending: [], ignored: [], watermarkSec: 0, completion: null, log: [] };
+  if (!(cfg.armedFallbackReps >= cfg.minRepsToStartSet)) throw new Error('armedFallbackReps must be ≥ minRepsToStartSet');
+  return {
+    version: 1,
+    config: cfg,
+    phase: cfg.startArmed ? 'ARMED' : 'READY',
+    sets: [],
+    rests: [],
+    pending: [],
+    ignored: [],
+    watermarkSec: 0,
+    completion: null,
+    log: [],
+    stableSinceSec: cfg.startArmed ? null : 0,
+  };
 }
 
 const lastOf = <T>(a: T[]): T | undefined => a[a.length - 1];
@@ -132,11 +176,41 @@ export function sessionReducer(state: SessionState, ev: SessionEvent): SessionSt
       s.watermarkSec = Math.max(s.watermarkSec, ev.watermarkSec);
       onTick(s);
       break;
+    case 'stable':
+      onStable(s, ev.atSec);
+      break;
+    case 'handling':
+      onHandling(s, ev.atSec);
+      break;
     case 'finish':
       complete(s, Math.max(ev.atSec, s.watermarkSec), 'manual');
       break;
   }
   return s;
+}
+
+function dropPlacement(s: SessionState, keepFromSec: number | null, atSec: number) {
+  const drop = s.pending.filter((r) => keepFromSec == null || r.startSec < keepFromSec);
+  if (!drop.length) return;
+  s.pending = s.pending.filter((r) => !drop.includes(r));
+  s.ignored.push({ reps: drop, reason: 'placement', atSec });
+}
+
+function onStable(s: SessionState, atSec: number) {
+  if (s.phase !== 'ARMED') return; // stillness only matters before Set 1
+  s.stableSinceSec = atSec;
+  dropPlacement(s, atSec, atSec);
+  s.phase = 'READY';
+  s.log.push({ atSec, event: 'ready', detail: 'phone still on the stack' });
+  if (s.pending.length >= s.config.minRepsToStartSet) startSet(s);
+}
+
+function onHandling(s: SessionState, atSec: number) {
+  if (s.phase !== 'READY' && s.phase !== 'ARMED') return; // during a workout, handling is a disturbance handled by rep validity
+  dropPlacement(s, null, atSec);
+  if (s.phase === 'READY') s.log.push({ atSec, event: 're-armed', detail: 'phone handled' });
+  s.phase = 'ARMED';
+  s.stableSinceSec = null;
 }
 
 function onRep(s: SessionState, rep: RepEvent) {
@@ -159,7 +233,11 @@ function onRep(s: SessionState, rep: RepEvent) {
       return;
     }
   }
-  // READY or REST.
+  // ARMED, READY or REST.
+  if (s.phase === 'READY' && s.stableSinceSec != null && rep.startSec < s.stableSinceSec) {
+    s.ignored.push({ reps: [rep], reason: 'placement', atSec: rep.endSec });
+    return;
+  }
   const last = lastOf(s.sets);
   if (s.phase === 'REST' && last && s.pending.length === 0 && rep.startSec - last.endSec <= cfg.maxRepGapSec) {
     // The set had not really ended: revoke the rest.
@@ -179,7 +257,11 @@ function onRep(s: SessionState, rep: RepEvent) {
     s.pending = [];
   }
   s.pending.push(rep);
-  if (s.pending.length >= cfg.minRepsToStartSet) startSet(s);
+  const needed = s.phase === 'ARMED' ? cfg.armedFallbackReps : cfg.minRepsToStartSet;
+  if (s.pending.length >= needed) {
+    if (s.phase === 'ARMED') s.log.push({ atSec: rep.endSec, event: 'started-without-stability', detail: `${s.pending.length} coherent reps` });
+    startSet(s);
+  }
 }
 
 function startSet(s: SessionState) {
@@ -265,8 +347,8 @@ export function serializeSession(s: SessionState): string {
 
 export function restoreSession(text: string): SessionState {
   const o = JSON.parse(text);
-  if (!o || o.version !== 1 || !Array.isArray(o.sets) || !['READY', 'ACTIVE_SET', 'REST', 'COMPLETE'].includes(o.phase)) {
+  if (!o || o.version !== 1 || !Array.isArray(o.sets) || !['ARMED', 'READY', 'ACTIVE_SET', 'REST', 'COMPLETE'].includes(o.phase)) {
     throw new Error('Not a valid session state');
   }
-  return { ...o, config: { ...DEFAULT_SESSION_CONFIG, ...o.config } } as SessionState;
+  return { stableSinceSec: o.phase === 'ARMED' ? null : 0, ...o, config: { ...DEFAULT_SESSION_CONFIG, ...o.config } } as SessionState;
 }

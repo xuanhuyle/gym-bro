@@ -75,7 +75,7 @@ export function HomeScreen(props: {
           ))}
         </>
       ) : null}
-      <Button title={recent.length ? 'Other exercise' : 'Start exercise'} onPress={props.onNew} big />
+      <Button title={recent.length ? 'Other exercise' : 'New exercise'} onPress={props.onNew} big />
       {props.devMode ? (
         <Card title="Developer" style={{ marginTop: 12 }}>
           <Button title="Raw recording (free text, manual stop)" kind="secondary" onPress={() => props.onRawRecording?.()} />

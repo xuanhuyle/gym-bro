@@ -42,6 +42,9 @@ export const DEFAULT_DETECTOR_OPTIONS: WindowedDetectorOptions = {
  */
 const GROUPING_ONLY: RejectReason[] = ['isolated'];
 
+/** Candidates starting this close to the first analysed sample are cut by the data edge. */
+const TRUNCATION_GUARD_SEC = 0.5;
+
 export interface PollResult {
   reps: RepEvent[];
   /** Every rep ending before this time has been released. */
@@ -56,6 +59,8 @@ export class WindowedRepDetector {
   private dirty = false;
   private watermark = 0;
   private firstT: number | null = null;
+  private boundary: number | null = null;
+  private signLockedAt: number | null = null;
   readonly opts: WindowedDetectorOptions;
 
   constructor(opts: Partial<WindowedDetectorOptions> = {}) {
@@ -64,6 +69,7 @@ export class WindowedRepDetector {
 
   /** Rows with t on the recording clock (as produced by the sensor layer). */
   push(rows: SampleRow[]): void {
+    if (this.boundary != null) rows = rows.filter((r) => r[COL.t] >= this.boundary!);
     if (!rows.length) return;
     if (this.firstT == null) this.firstT = rows[0][COL.t];
     this.rows.push(...rows);
@@ -72,6 +78,24 @@ export class WindowedRepDetector {
     let i = 0;
     while (i < this.rows.length && this.rows[i][COL.t] < cut) i++;
     if (i > 0) this.rows = this.rows.slice(i);
+    this.dirty = true;
+  }
+
+  /**
+   * Discard samples before `t` (e.g. phone placement before it was still on the
+   * stack) so they never enter the engine's window statistics or direction vote.
+   * History for minHistorySec is then counted from `t`; reps are released late, not lost.
+   */
+  ignoreBefore(t: number): void {
+    if (this.boundary != null && t <= this.boundary) return;
+    this.boundary = t;
+    this.rows = this.rows.filter((r) => r[COL.t] >= t);
+    this.firstT = t;
+    // A direction voted on data that included placement is not trustworthy: vote again.
+    if (this.signLockedAt != null && this.signLockedAt < t) {
+      this.lockedSign = null;
+      this.signLockedAt = null;
+    }
     this.dirty = true;
   }
 
@@ -95,7 +119,10 @@ export class WindowedRepDetector {
     const res = analyzeSamples(this.rows, cfg);
     // The direction decides peaks vs troughs; flipping it between windows would
     // shift every rep by half a cycle, so lock it at the first decisive vote.
-    if (this.lockedSign == null && res.signSource === 'vote') this.lockedSign = res.verticalSign;
+    if (this.lockedSign == null && res.signSource === 'vote') {
+      this.lockedSign = res.verticalSign;
+      this.signLockedAt = newest;
+    }
 
     const watermark = final ? newest : newest - this.opts.settleSec;
     const reps: RepEvent[] = [];
@@ -103,6 +130,8 @@ export class WindowedRepDetector {
       if (!c.rejectReasons.every((r) => GROUPING_ONLY.includes(r))) continue;
       const rep: RepEvent = { startSec: t0 + c.startSec, peakSec: t0 + c.peakSec, endSec: t0 + c.endSec, amplitudeM: c.amplitudeM };
       if (rep.endSec > watermark) continue;
+      // A candidate that "starts" at the first analysed sample is truncated by the data edge, not an observed rep.
+      if (rep.startSec < t0 + TRUNCATION_GUARD_SEC) continue;
       // Same rep seen again in a later window: its peak falls inside the span already released.
       if (rep.peakSec <= this.lastEmittedEnd) continue;
       reps.push(rep);

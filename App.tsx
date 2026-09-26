@@ -6,6 +6,7 @@ import { rememberWeight } from './src/catalogue/weightMemory';
 import { emptyContext, ExerciseContext } from './src/recording/schema';
 import { contextFromSelection, ExerciseSelection, makeSelection } from './src/session/record';
 import { TrainingEntry } from './src/memory/history';
+import { resumeWeight, ResumeWeight } from './src/memory/queries';
 import { loadHistory, loadWeightBook, readSettings, saveWeightBook, writeSettings } from './src/storage/recordingStore';
 import { colors } from './src/ui/components/common';
 import { DebugSetupScreen } from './src/ui/screens/DebugSetupScreen';
@@ -18,8 +19,8 @@ import { RecordingScreen } from './src/ui/screens/RecordingScreen';
 // A handful of screens, so a plain state machine instead of a navigation library.
 type Route =
   | { name: 'home' }
-  | { name: 'setup'; initial?: { regionId: string; variantId: string } }
-  | { name: 'session'; selection: ExerciseSelection; loadKg: number; context: ExerciseContext }
+  | { name: 'setup' }
+  | { name: 'session'; selection: ExerciseSelection; loadKg: number | null; context: ExerciseContext; resume: ResumeWeight; history: TrainingEntry[] }
   | { name: 'detail'; id: string }
   | { name: 'debugSetup' }
   | { name: 'recording'; context: ExerciseContext };
@@ -60,13 +61,25 @@ export default function App() {
     }
   };
 
+  /** Context is complete → arm: resume the weight from memory and open the live session (no START). */
+  const arm = (regionId: string, variantId: string) => {
+    const history = safeHistory();
+    const variant = catalogue.variant(variantId);
+    const resume = resumeWeight(history, loadWeightBook(), variant);
+    const loadKg = resume?.kg ?? null;
+    if (loadKg != null) rememberLoad(variantId, loadKg);
+    setSettings({ lastSelection: { regionId, variantId } });
+    const selection = makeSelection(catalogue, regionId, variantId);
+    setRoute({ name: 'session', selection, loadKg, context: contextFromSelection(catalogue, selection, loadKg), resume, history });
+  };
+
   let screen: React.ReactNode;
   switch (route.name) {
     case 'home':
       screen = (
         <HomeScreen
           history={safeHistory()}
-          onResume={(initial) => setRoute({ name: 'setup', initial })}
+          onResume={({ regionId, variantId }) => arm(regionId, variantId)}
           onNew={() => setRoute({ name: 'setup' })}
           onOpen={(id) => setRoute({ name: 'detail', id })}
           devMode={settings.devMode}
@@ -76,28 +89,20 @@ export default function App() {
       );
       break;
     case 'setup':
-      screen = (
-        <ExerciseSetupScreen
-          weights={loadWeightBook()}
-          history={safeHistory()}
-          initial={route.initial ?? (settings.lastSelection && safeVariant(settings.lastSelection.variantId) ? settings.lastSelection : null)}
-          onCancel={() => setRoute({ name: 'home' })}
-          onStart={({ regionId, variantId, loadKg }) => {
-            try {
-              saveWeightBook(rememberWeight(loadWeightBook(), catalogue.variant(variantId), loadKg, new Date().toISOString()));
-            } catch {
-              /* convenience only */
-            }
-            setSettings({ lastSelection: { regionId, variantId } });
-            const selection = makeSelection(catalogue, regionId, variantId);
-            setRoute({ name: 'session', selection, loadKg, context: contextFromSelection(catalogue, selection, loadKg) });
-          }}
-        />
-      );
+      screen = <ExerciseSetupScreen history={safeHistory()} onCancel={() => setRoute({ name: 'home' })} onArm={({ regionId, variantId }) => arm(regionId, variantId)} />;
       break;
     case 'session':
       screen = (
-        <ExerciseSessionScreen selection={route.selection} loadKg={route.loadKg} context={route.context} onExit={(id) => setRoute(id ? { name: 'detail', id } : { name: 'home' })} />
+        <ExerciseSessionScreen
+          selection={route.selection}
+          loadKg={route.loadKg}
+          context={route.context}
+          resume={route.resume}
+          history={route.history}
+          onWeightChange={(kg) => kg != null && rememberLoad(route.selection.variantId, kg)}
+          onChangeExercise={() => setRoute({ name: 'setup' })}
+          onExit={(id) => setRoute(id ? { name: 'detail', id } : { name: 'home' })}
+        />
       );
       break;
     case 'detail':
@@ -130,11 +135,10 @@ export default function App() {
   );
 }
 
-function safeVariant(id: string): boolean {
+function rememberLoad(variantId: string, kg: number) {
   try {
-    catalogue.variant(id);
-    return true;
+    saveWeightBook(rememberWeight(loadWeightBook(), catalogue.variant(variantId), kg, new Date().toISOString()));
   } catch {
-    return false;
+    /* convenience only */
   }
 }

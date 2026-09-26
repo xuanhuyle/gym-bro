@@ -41,6 +41,45 @@ describe('live pipeline on synthetic recordings', () => {
     const { samples } = generateWorkout({ seed: 9, sets: [], restsSec: [], leadInSec: 90, disturbances: [{ kind: 'handling', count: 3 }, { kind: 'bump', count: 5 }] });
     const { state } = replaySession(samples);
     expect(state.sets).toHaveLength(0);
-    expect(state.phase).toBe('READY');
+    // Product flow starts ARMED; with only handling it may end ARMED or READY, never in a workout phase.
+    expect(['ARMED', 'READY']).toContain(state.phase);
+  });
+});
+
+describe('armed start with realistic phone placement (synthetic)', () => {
+  // Hand-held (tremor, tilted) → carried/rotated onto the stack → strapped → still → 10/12/15.
+  // Arming requirements are asserted for EVERY seed; exact counting is the live
+  // path's known accuracy limit, so it is asserted over the group (see TESTS.md).
+  const seeds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const runs = seeds.map((seed) => {
+    const spec = {
+      seed,
+      sets: [{ reps: 10 }, { reps: 12 }, { reps: 15 }],
+      restsSec: [30, 30],
+      leadInSec: 16,
+      leadOutSec: 30,
+      userAccelSign: -1 as const,
+      placement: { handSec: 4, moveSec: 3, angleDeg: 60 + (seed % 4) * 20 },
+    };
+    const { samples, truth } = generateWorkout(spec);
+    const { state } = replaySession(samples, { detector: { analysis: { priorVerticalSign: -1 } } });
+    return { seed, state, truth, placementEnd: spec.placement.handSec + spec.placement.moveSec };
+  });
+
+  it.each(seeds)('seed %i: placement never counts, READY before Set 1, Set 1 starts at its first rep, three sets, COMPLETE', (seed) => {
+    const { state, truth, placementEnd } = runs.find((r) => r.seed === seed)!;
+    expect(state.phase).toBe('COMPLETE');
+    expect(state.sets).toHaveLength(3);
+    const ready = state.log.find((l) => l.event === 'ready');
+    expect(ready).toBeTruthy();
+    expect(ready!.atSec).toBeGreaterThanOrEqual(placementEnd - 0.5);
+    const allReps = state.sets.flatMap((x) => x.reps);
+    expect(allReps.every((r) => r.startSec >= placementEnd)).toBe(true);
+    expect(Math.abs(state.sets[0].startSec - truth.sets[0].startSec)).toBeLessThan(1);
+  });
+
+  it('exact reps in ≥ 8 of 10 placement sessions (live-path accuracy on synthetic data)', () => {
+    const exact = runs.filter((r) => summarize(r.state, Infinity).sets.map((x) => x.reps).join('/') === '10/12/15').length;
+    expect(exact).toBeGreaterThanOrEqual(8);
   });
 });

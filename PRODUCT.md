@@ -64,18 +64,23 @@ memory, session diff, period-vs-previous-period counts).
 ## Capture interaction: one exercise
 The user provides the semantic context; the phone captures the temporal workout data.
 
-1. Choose **body region** → catalogue shows the relevant **exercises**.
-2. Choose the exercise → catalogue shows the compatible **machines/equipment**.
-3. Choose the machine and, where relevant, the **variant** (grip, foot position…).
-4. The app shows, deterministically from that exercise variant, the **primary** and **secondary** muscles
-   (qualitative roles, no invented activation percentages).
-5. Set the **weight** — pre-filled with the last weight used for that variant (or the same exercise on the
-   same machine).
-6. Strap the iPhone to the moving top plate of the stack, press **START EXERCISE** once.
+1. Choose **body region** → catalogue shows the relevant **exercises** (memory: when the region was last trained).
+2. Choose the exercise → catalogue shows the compatible **machines/equipment** (memory: last use of the machine).
+3. Choose the machine and, where relevant, the **variant** (memory: each grip's last performance).
+4. **No START button.** As soon as the exercise variant is resolved (picked, or the only one), the exercise is
+   **ARMED**: acquisition starts with the phone still in the user's hand. Tapping a recent exercise on Home arms
+   it directly. The armed screen shows LAST TIME / PREVIOUS, the muscles (primary / secondary), and the
+   **weight** resumed from memory — editable while armed, correctable afterwards.
+5. The user straps the iPhone to the moving top plate. This **placement motion is ignored**. When the phone has
+   been still on the stack for a moment the session is **READY**.
+6. Set 1 starts by itself on a coherent sequence of valid reps; **all of them, including the first, are
+   back-filled** into Set 1. (If stillness is never detected, a longer coherent run still starts Set 1.)
+   Picking the phone up again before Set 1 re-arms. "Change exercise" discards an armed recording.
 7. Set 1 → when valid reps stop, the app enters **REST** by itself; the rest is timed from the end of the
    last valid rep (not from when the app confirmed the set was over).
 8. A coherent new sequence of reps (not one bump) ends the rest and starts Set 2, whose first rep counts.
-9. Set 3 ends → the exercise is automatically **COMPLETE and SAVED**. No button between sets.
+9. Set 3 ends → the exercise is automatically **COMPLETE and SAVED**. No user action between choosing the
+   exercise and automatic completion.
 
 Live display (glanceable during rests):
 ```
