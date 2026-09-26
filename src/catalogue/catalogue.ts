@@ -4,7 +4,7 @@
  */
 
 import { CATALOGUE } from './data';
-import { BodyRegion, CatalogueData, Equipment, Exercise, ExerciseVariant, Muscle } from './types';
+import { BodyRegion, CatalogueData, ContributionRole, Equipment, Exercise, ExerciseVariant, Muscle, TrainingSplit } from './types';
 
 export interface MuscleMap {
   primary: Muscle[];
@@ -48,6 +48,31 @@ export class Catalogue {
     return this.data.variants.filter((v) => v.exerciseId === exerciseId && v.equipmentId === equipmentId);
   }
 
+  /** Whole ontology — the eligible pool for suggestions (region priorities only re-order it). */
+  exercises(): Exercise[] {
+    return this.data.exercises.filter((e) => this.variantsForExercise(e.id).length > 0);
+  }
+
+  exercisesForSplit(split: TrainingSplit): Exercise[] {
+    return this.exercises().filter((e) => e.split === split);
+  }
+
+  /** One machine supports several exercises (e.g. pec deck: chest fly and reverse fly). */
+  exercisesOnEquipment(equipmentId: string): Exercise[] {
+    const ids = new Set(this.data.variants.filter((v) => v.equipmentId === equipmentId).map((v) => v.exerciseId));
+    return this.data.exercises.filter((e) => ids.has(e.id));
+  }
+
+  /** One muscle is trained by many variants; the role (PRIMARY / SECONDARY) is kept. */
+  variantsTrainingMuscle(muscleId: string): { variant: ExerciseVariant; role: ContributionRole }[] {
+    return this.data.variants.flatMap((v) => v.contributions.filter((c) => c.muscleId === muscleId).map((c) => ({ variant: v, role: c.role })));
+  }
+
+  /** Default region for an exercise reached without region browsing (cards, suggestions): its first region. */
+  primaryRegionId(exerciseId: string): string {
+    return this.exercise(exerciseId).bodyRegionIds[0];
+  }
+
   musclesForVariant(variantId: string): MuscleMap {
     const v = this.variant(variantId);
     const pick = (role: 'primary' | 'secondary') => v.contributions.filter((c) => c.role === role).map((c) => this.muscle(c.muscleId));
@@ -70,10 +95,11 @@ export class Catalogue {
     return must(this.data.muscles.find((x) => x.id === id), 'muscle', id);
   }
 
-  selection(regionId: string, variantId: string): VariantSelection {
+  /** `regionId` records where the user came from; null (card, suggestion) → the exercise's primary region. */
+  selection(regionId: string | null, variantId: string): VariantSelection {
     const variant = this.variant(variantId);
     return {
-      region: this.region(regionId),
+      region: this.region(regionId ?? this.primaryRegionId(variant.exerciseId)),
       exercise: this.exercise(variant.exerciseId),
       equipment: this.equipment(variant.equipmentId),
       variant,

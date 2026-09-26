@@ -20,19 +20,18 @@ import { RecordingScreen } from './src/ui/screens/RecordingScreen';
 type Route =
   | { name: 'home' }
   | { name: 'setup' }
-  | { name: 'session'; selection: ExerciseSelection; loadKg: number | null; context: ExerciseContext; resume: ResumeWeight; history: TrainingEntry[] }
+  | { name: 'session'; armId: number; selection: ExerciseSelection; loadKg: number | null; context: ExerciseContext; resume: ResumeWeight; history: TrainingEntry[] }
   | { name: 'detail'; id: string }
   | { name: 'debugSetup' }
   | { name: 'recording'; context: ExerciseContext };
 
 interface Settings {
   lastContext: ExerciseContext;
-  lastSelection: { regionId: string; variantId: string } | null;
   devMode: boolean;
 }
 
 function loadSettings(): Settings {
-  const fallback: Settings = { lastContext: emptyContext(), lastSelection: null, devMode: false };
+  const fallback: Settings = { lastContext: emptyContext(), devMode: false };
   try {
     return readSettings(fallback);
   } catch {
@@ -61,16 +60,18 @@ export default function App() {
     }
   };
 
-  /** Context is complete → arm: resume the weight from memory and open the live session (no START). */
-  const arm = (regionId: string, variantId: string) => {
+  /**
+   * Context is complete → arm: restore the remembered load and open the live session (no START).
+   * regionId = where the user browsed from, or null (card / suggestion / machine switch).
+   */
+  const arm = (regionId: string | null, variantId: string) => {
     const history = safeHistory();
     const variant = catalogue.variant(variantId);
     const resume = resumeWeight(history, loadWeightBook(), variant);
     const loadKg = resume?.kg ?? null;
     if (loadKg != null) rememberLoad(variantId, loadKg);
-    setSettings({ lastSelection: { regionId, variantId } });
     const selection = makeSelection(catalogue, regionId, variantId);
-    setRoute({ name: 'session', selection, loadKg, context: contextFromSelection(catalogue, selection, loadKg), resume, history });
+    setRoute({ name: 'session', armId: Date.now(), selection, loadKg, context: contextFromSelection(catalogue, selection, loadKg), resume, history });
   };
 
   let screen: React.ReactNode;
@@ -79,7 +80,8 @@ export default function App() {
       screen = (
         <HomeScreen
           history={safeHistory()}
-          onResume={({ regionId, variantId }) => arm(regionId, variantId)}
+          weights={loadWeightBook()}
+          onResume={({ variantId }) => arm(null, variantId)}
           onNew={() => setRoute({ name: 'setup' })}
           onOpen={(id) => setRoute({ name: 'detail', id })}
           devMode={settings.devMode}
@@ -94,6 +96,7 @@ export default function App() {
     case 'session':
       screen = (
         <ExerciseSessionScreen
+          key={route.armId}
           selection={route.selection}
           loadKg={route.loadKg}
           context={route.context}
@@ -101,6 +104,7 @@ export default function App() {
           history={route.history}
           onWeightChange={(kg) => kg != null && rememberLoad(route.selection.variantId, kg)}
           onChangeExercise={() => setRoute({ name: 'setup' })}
+          onSwitchMachine={(variantId) => arm(route.selection.regionId, variantId)}
           onExit={(id) => setRoute(id ? { name: 'detail', id } : { name: 'home' })}
         />
       );

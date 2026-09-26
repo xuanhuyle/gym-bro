@@ -10,7 +10,7 @@ describe('seed catalogue', () => {
   });
 
   it('covers Push, Pull and Legs', () => {
-    const patterns = new Set(CATALOGUE.exercises.map((e) => e.movementPattern));
+    const patterns = new Set(CATALOGUE.exercises.map((e) => e.split));
     expect(patterns).toEqual(new Set(['Push', 'Pull', 'Legs']));
   });
 
@@ -86,7 +86,7 @@ describe('exercise variant → muscles', () => {
 describe('extending the catalogue', () => {
   it('a new exercise appears by adding data only, and bad data is reported', () => {
     const data: CatalogueData = JSON.parse(JSON.stringify(CATALOGUE));
-    data.exercises.push({ id: 'calf_raise', name: 'Calf Raise', movementPattern: 'Legs', bodyRegionIds: ['legs'] });
+    data.exercises.push({ id: 'calf_raise', name: 'Calf Raise', split: 'Legs', movementPattern: 'ankle_plantar_flexion', bodyRegionIds: ['legs'] });
     data.equipment.push({ id: 'calf_machine', name: 'Seated calf machine', hasWeightStack: true });
     data.variants.push({ id: 'calf_raise.machine', exerciseId: 'calf_raise', equipmentId: 'calf_machine', variantName: null, contributions: [{ muscleId: 'gastrocnemius', role: 'primary' }] });
     const c = new Catalogue(data);
@@ -98,5 +98,39 @@ describe('extending the catalogue', () => {
     expect(problems.join('\n')).toMatch(/unknown equipment nowhere/);
     expect(problems.join('\n')).toMatch(/unknown muscle nope/);
     expect(problems.join('\n')).toMatch(/no primary muscle/);
+  });
+});
+
+describe('ontology structure (facts only, many-to-many)', () => {
+  it('training split and kinematic movement pattern are distinct facts', () => {
+    const lp = catalogue.exercise('lat_pulldown');
+    expect(lp.split).toBe('Pull');
+    expect(lp.movementPattern).toBe('vertical_pull');
+    expect(catalogue.exercisesForSplit('Legs').map((e) => e.id)).toEqual(['leg_press', 'leg_extension', 'leg_curl', 'hip_abduction']);
+  });
+
+  it('one exercise can be performed on several machines', () => {
+    expect(catalogue.equipmentForExercise('biceps_curl').map((m) => m.id)).toEqual(['cable_station', 'biceps_curl_machine']);
+  });
+
+  it('one machine supports several exercises', () => {
+    expect(catalogue.exercisesOnEquipment('pec_deck').map((e) => e.id)).toEqual(['reverse_fly', 'chest_fly']);
+    expect(catalogue.exercisesOnEquipment('cable_station').map((e) => e.id)).toEqual(['seated_row', 'biceps_curl', 'triceps_pushdown']);
+  });
+
+  it('one muscle is trained by many exercises, with PRIMARY and SECONDARY roles kept', () => {
+    const biceps = catalogue.variantsTrainingMuscle('biceps');
+    expect(new Set(biceps.map((b) => b.variant.exerciseId))).toEqual(new Set(['lat_pulldown', 'seated_row', 'biceps_curl']));
+    expect(biceps.filter((b) => b.role === 'primary').map((b) => b.variant.exerciseId)).toEqual(['biceps_curl', 'biceps_curl']);
+  });
+
+  it('encodes no objective- or recommendation-specific statements', () => {
+    const text = JSON.stringify(CATALOGUE).toLowerCase();
+    for (const word of ['objective', 'bigger', 'shape', 'recommend', 'priority']) expect(text).not.toContain(word);
+  });
+
+  it('an exercise reached without browsing a region gets its primary region', () => {
+    expect(catalogue.primaryRegionId('reverse_fly')).toBe('shoulders');
+    expect(catalogue.selection(null, 'reverse_fly.pec_deck').region.id).toBe('shoulders');
   });
 });

@@ -17,6 +17,9 @@ import { ExerciseSelection, ExerciseSessionRecord, newSessionRecord } from '../.
 import { catalogue } from '../../catalogue/catalogue';
 import { TrainingEntry } from '../../memory/history';
 import { ResumeWeight, variantMemory } from '../../memory/queries';
+import { compatibleMachines, switchMachine } from '../../memory/context';
+import { fmtOneLine } from '../../memory/format';
+import { DEFAULT_PRESCRIPTION, describePrescription, Prescription, sessionConfigFor } from '../../planning/prescription';
 import { deleteRecording, saveSession, updateMeta } from '../../storage/recordingStore';
 import { VariantMemoryCard, WeightMemoryHint } from '../components/Memory';
 import { ActiveRecorder, startRecorder } from '../recorder';
@@ -43,9 +46,13 @@ export function ExerciseSessionScreen(props: {
   onWeightChange?: (kg: number | null) => void;
   /** Abandon before Set 1 (wrong exercise): the armed recording is discarded. */
   onChangeExercise?: () => void;
+  /** Same exercise on another compatible machine (e.g. this one is occupied): re-arm with that variant. */
+  onSwitchMachine?: (variantId: string) => void;
+  prescription?: Prescription;
   now?: Date;
 }) {
   useKeepAwake();
+  const prescription = props.prescription ?? DEFAULT_PRESCRIPTION;
   const [loadKg, setLoadKg] = useState<number | null>(props.loadKg);
   const [weightText, setWeightText] = useState(props.loadKg != null ? String(props.loadKg) : '');
   const [status, setStatus] = useState<'starting' | 'running' | 'saved' | 'failed'>('starting');
@@ -95,8 +102,8 @@ export function ExerciseSessionScreen(props: {
         rec.dispose();
         return;
       }
-      const live = new LiveSession();
-      const record = newSessionRecord(rec.id, props.selection, loadKg, live.detector.opts, live.state, new Date().toISOString());
+      const live = new LiveSession({ session: sessionConfigFor(prescription) });
+      const record = newSessionRecord(rec.id, props.selection, loadKg, live.detector.opts, live.state, new Date().toISOString(), prescription);
       ref.current = { rec, live, record, nowSec: 0 };
       persist();
       setStatus('running');
@@ -153,7 +160,7 @@ export function ExerciseSessionScreen(props: {
     applyWeight(String(Math.max(0, Math.round(((Number.isFinite(cur) ? cur : 0) + d) * 10) / 10)));
   };
 
-  const changeExercise = () => {
+  const discardArmed = () => {
     const r = ref.current;
     timers.current.forEach(clearInterval);
     timers.current = [];
@@ -166,6 +173,15 @@ export function ExerciseSessionScreen(props: {
       }
       ref.current = null;
     }
+  };
+  const pickMachine = (equipmentId: string) => {
+    const ctx = switchMachine(props.history ?? [], catalogue, null, { exerciseId: sel.exerciseId, variantId: sel.variantId }, equipmentId);
+    discardArmed();
+    props.onSwitchMachine?.(ctx.variantId);
+  };
+
+  const changeExercise = () => {
+    discardArmed();
     props.onChangeExercise?.();
   };
 
@@ -188,6 +204,7 @@ export function ExerciseSessionScreen(props: {
   const summary = r ? summarize(r.live.state, r.nowSec) : null;
   const sel = props.selection;
   const now = props.now ?? new Date();
+  const machines = compatibleMachines(props.history ?? [], catalogue, sel.exerciseId);
   const phase = summary?.phase ?? null;
   const preSet = status === 'running' && (phase === 'ARMED' || phase === 'READY');
 
@@ -239,6 +256,23 @@ export function ExerciseSessionScreen(props: {
               Primary: {sel.muscles.primary.join(', ')}
               {sel.muscles.secondary.length ? ` · Secondary: ${sel.muscles.secondary.join(', ')}` : ''}
             </Text>
+            <Text style={[styles.muted, { marginTop: 6 }]}>Plan: {describePrescription(prescription)}</Text>
+            {props.onSwitchMachine && machines.length > 1 ? (
+              <Card title="Machine" style={{ marginTop: 12 }}>
+                <Text style={styles.body}>{sel.labels.equipment}</Text>
+                <Text style={[styles.muted, { marginBottom: 6 }]}>Occupied or different? Switch — history follows the machine.</Text>
+                {machines
+                  .filter((m) => m.equipment.id !== sel.equipmentId)
+                  .map((m) => (
+                    <Button
+                      key={m.equipment.id}
+                      title={`${m.equipment.name}${m.last ? ` · last ${fmtOneLine(m.last)}` : ' · first time'}`}
+                      kind="secondary"
+                      onPress={() => pickMachine(m.equipment.id)}
+                    />
+                  ))}
+              </Card>
+            ) : null}
             {props.onChangeExercise ? <Button title="Change exercise" kind="secondary" onPress={changeExercise} style={{ marginTop: 12 }} /> : null}
           </View>
         ) : null}

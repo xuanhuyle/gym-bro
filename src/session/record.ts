@@ -8,6 +8,7 @@
 
 import { Catalogue } from '../catalogue/catalogue';
 import { ALGORITHM_VERSION } from '../analysis/analyze';
+import { DEFAULT_PRESCRIPTION, Prescription } from '../planning/prescription';
 import { ExerciseContext } from '../recording/schema';
 import { SessionState } from './machine';
 import { WindowedDetectorOptions } from './windowedDetector';
@@ -36,6 +37,8 @@ export interface ExerciseSessionRecord {
   status: 'in-progress' | 'complete';
   selection: ExerciseSelection;
   loadKg: number | null;
+  /** Intended structure (optional, additive; absent in older records = the 3-set default). Intent, not outcome. */
+  prescription?: Prescription;
   detector: {
     kind: 'windowed-offline-engine';
     algorithmVersion: string;
@@ -46,11 +49,12 @@ export interface ExerciseSessionRecord {
   state: SessionState;
 }
 
-export function makeSelection(cat: Catalogue, regionId: string, variantId: string): ExerciseSelection {
+/** `regionId` = where the user browsed from; null when started from a card/suggestion (derived from the exercise). */
+export function makeSelection(cat: Catalogue, regionId: string | null, variantId: string): ExerciseSelection {
   const sel = cat.selection(regionId, variantId);
   return {
     catalogueVersion: cat.version,
-    regionId,
+    regionId: sel.region.id,
     exerciseId: sel.exercise.id,
     equipmentId: sel.equipment.id,
     variantId,
@@ -62,7 +66,7 @@ export function makeSelection(cat: Catalogue, regionId: string, variantId: strin
 /** Recording context (labels + ids) derived from a catalogue selection. */
 export function contextFromSelection(cat: Catalogue, sel: ExerciseSelection, loadKg: number | null): ExerciseContext {
   return {
-    movementPattern: cat.exercise(sel.exerciseId).movementPattern,
+    movementPattern: cat.exercise(sel.exerciseId).split, // recording field holds the training split (legacy name)
     bodyRegion: sel.labels.region,
     exercise: sel.labels.exercise,
     variant: sel.labels.variant ?? '',
@@ -73,8 +77,17 @@ export function contextFromSelection(cat: Catalogue, sel: ExerciseSelection, loa
   };
 }
 
-export function newSessionRecord(id: string, selection: ExerciseSelection, loadKg: number | null, detectorOptions: WindowedDetectorOptions, state: SessionState, now: string): ExerciseSessionRecord {
+export function newSessionRecord(
+  id: string,
+  selection: ExerciseSelection,
+  loadKg: number | null,
+  detectorOptions: WindowedDetectorOptions,
+  state: SessionState,
+  now: string,
+  prescription: Prescription = DEFAULT_PRESCRIPTION,
+): ExerciseSessionRecord {
   return {
+    prescription,
     format: SESSION_FORMAT,
     schemaVersion: SESSION_SCHEMA_VERSION,
     id,

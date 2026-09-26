@@ -4,10 +4,11 @@
  */
 import React from 'react';
 import { Text, View } from 'react-native';
-import { Catalogue } from '../../catalogue/catalogue';
 import { fmtAgo, fmtDay, fmtKg, fmtOneLine, fmtReps, fmtRests, fmtSigned } from '../../memory/format';
 import { TrainingEntry } from '../../memory/history';
 import { MachineMemory, RegionMemory, ResumeWeight, VariantMemory } from '../../memory/queries';
+import { ExerciseCard } from '../../planning/cards';
+import { describePrescription } from '../../planning/prescription';
 import { Card, colors, styles } from './common';
 
 const sourceTag = (e: TrainingEntry) => (e.source === 'corrected' ? 'counts confirmed by you' : 'auto-captured counts');
@@ -93,13 +94,23 @@ export function WeightMemoryHint({ resume, now }: { resume: ResumeWeight; now: D
   }
 }
 
-export function RecentVariantRow({ entry, cat, now }: { entry: TrainingEntry; cat: Catalogue; now: Date }) {
+/** Flashcard-style remembered context: what, where, how heavy, what happened last time, the plan. */
+export function ExerciseCardView({ card, now }: { card: ExerciseCard; now: Date }) {
   return (
     <View>
-      <Text style={styles.body}>{variantLabel(entry)}</Text>
-      <Text style={styles.muted}>
-        {cat.equipment(entry.equipmentId).name} · {fmtDay(entry.date, now)} · {fmtOneLine(entry)}
+      <Text style={[styles.body, { fontWeight: '700' }]}>
+        {card.exercise}
+        {card.variant ? ` · ${card.variant}` : ''}
       </Text>
+      {card.last ? (
+        <Text style={styles.muted}>
+          {card.machine} · {fmtDay(card.last.date, now)} · {fmtOneLine(card.last)}
+        </Text>
+      ) : (
+        <Text style={styles.muted}>{card.machine} · no completed session yet</Text>
+      )}
+      {card.previous ? <Text style={styles.muted}>Previous: {fmtOneLine(card.previous)}</Text> : null}
+      <Text style={styles.muted}>{describePrescription(card.prescription)}</Text>
     </View>
   );
 }

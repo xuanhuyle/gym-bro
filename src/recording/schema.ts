@@ -46,6 +46,11 @@ export const COL: Record<SampleColumn, number> = Object.fromEntries(
   SAMPLE_COLUMNS.map((c, i) => [c, i]),
 ) as Record<SampleColumn, number>;
 
+/**
+ * Training split (Push / Pull / Legs / Other). Stored under the legacy field
+ * name `movementPattern` in recordings (schema v1); the catalogue calls it
+ * `split` and uses `movementPattern` for the kinematic pattern.
+ */
 export type MovementPattern = 'Push' | 'Pull' | 'Legs' | 'Other';
 
 export interface ExerciseContext {

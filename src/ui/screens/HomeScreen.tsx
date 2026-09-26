@@ -7,7 +7,9 @@ import { contextLabel } from '../../recording/schema';
 import { summarize } from '../../session/machine';
 import { importRecording, listRecordings, RecordingListItem } from '../../storage/recordingStore';
 import { Button, Card, colors, styles } from '../components/common';
-import { RecentVariantRow } from '../components/Memory';
+import { ExerciseCardView } from '../components/Memory';
+import { buildExerciseCard } from '../../planning/cards';
+import { WeightBook } from '../../catalogue/weightMemory';
 
 function SessionLine({ item }: { item: RecordingListItem }) {
   const s = item.session!;
@@ -36,6 +38,7 @@ export function HomeScreen(props: {
   onOpen: (id: string) => void;
   /** Completed-session history, for the quick "Recent" reopen list. */
   history?: TrainingEntry[];
+  weights?: WeightBook;
   onResume?: (sel: { regionId: string; variantId: string }) => void;
   devMode?: boolean; onDevMode?: (v: boolean) => void; onRawRecording?: () => void }) {
   const [items, setItems] = useState<RecordingListItem[]>([]);
@@ -69,7 +72,7 @@ export function HomeScreen(props: {
           {recent.map((e) => (
             <Pressable key={e.variantId} accessibilityRole="button" onPress={() => props.onResume!({ regionId: e.regionId, variantId: e.variantId })}>
               <Card>
-                <RecentVariantRow entry={e} cat={catalogue} now={now} />
+                <ExerciseCardView card={buildExerciseCard(props.history ?? [], catalogue, props.weights ?? null, e.variantId, now)} now={now} />
               </Card>
             </Pressable>
           ))}

@@ -284,6 +284,18 @@ describe('training memory in the UX', () => {
     expect(onChangeExercise).toHaveBeenCalled();
   });
 
+  it('armed screen shows the plan and lets the user switch machine cheaply (history follows the machine)', async () => {
+    const onSwitchMachine = jest.fn();
+    const rowHistory = [mk('r', 'seated_row.cable.close_neutral', '2026-09-19T18:30:00', 50, [12, 11, 10], [70, 70])];
+    await renderArmed('seated_row.machine.neutral', rowHistory, { onSwitchMachine });
+    expect(screen.getByText('Plan: 3 sets · final set to failure (AMRAP)')).toBeTruthy();
+    // No history on this machine: the cable-row kilograms are NOT pre-filled.
+    expect(screen.getByLabelText('Weight in kg').props.value).toBe('');
+    await fireEvent.press(screen.getByText('Cable station (adjustable pulley) · last 50 kg · 12/11/10'));
+    expect(mockStore.deleteRecording).toHaveBeenCalledWith('rec-1');
+    expect(onSwitchMachine).toHaveBeenCalledWith('seated_row.cable.close_neutral');
+  });
+
   it('Home offers one-tap reopen of recent exercises with their last performance', async () => {
     const { HomeScreen } = require('../screens/HomeScreen');
     mockStore.listRecordings.mockReturnValue([]);

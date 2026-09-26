@@ -1,6 +1,7 @@
 # CLAUDE.md — durable engineering rules
 
-Read PRODUCT.md (why), STATUS.md (where we are) and TESTS.md (how we know) before changing anything.
+Read PRODUCT_DESIGN.md (authoritative product design), PRODUCT.md (thesis + gates), STATUS.md (where we are) and
+TESTS.md (how we know) before changing anything.
 
 ## What this is
 **Gym Bro is a memory layer for strength training**: it remembers what the user did on every exercise and
@@ -19,14 +20,19 @@ The founder works on Windows with a physical iPhone and **no Mac**: the app must
 src/sensors/      acquisition only: expo-sensors DeviceMotion → SampleRow (raw, timestamped). No analysis.
 src/recording/    schema.ts: the recording format (JSON/CSV). Pure TS. The contract between all layers.
 src/analysis/     pure, deterministic TS rep/set engine for a guided weight stack. No React Native / Expo imports.
-src/catalogue/    pure data + queries: BodyRegion, Exercise, Equipment, ExerciseVariant, Muscle, contributions
-                  (PRIMARY/SECONDARY only, no percentages); last-used weight per variant.
+src/catalogue/    canonical ontology = FACTS only: TrainingSplit (PPL), BodyRegion, Muscle, kinematic MovementPattern,
+                  Exercise, Equipment, ExerciseVariant, contributions (PRIMARY/SECONDARY, no percentages);
+                  many-to-many queries; last-used weight per variant.
 src/session/      pure exercise-session state machine (ARMED → READY → ACTIVE_SET ⇄ REST → COMPLETE) fed by
                   rep events, watermark ticks and stable/handling events; adapters: windowed rep detector
                   (unchanged analysis engine) + stillness monitor; replay driver; persisted session record.
 src/memory/       pure training-memory layer: history entries from completed sessions (+ user corrections),
                   queries for variant / machine / body-region / muscle memory, resume weight, session and
-                  period comparisons, formatting. No React.
+                  period comparisons, formatting; context.ts = remembered exercise context + machine switch. No React.
+src/profile/      pure UserProfile: confirmed onboarding fields; objective and body-region priorities kept separate.
+src/planning/     pure decision-layer scaffolding: Prescription (3 sets, final set intended AMRAP), starting scope
+                  (priority = ordering, never a filter), exercise cards, WorkoutSuggestion / PlannedExercise,
+                  implicit WorkoutSession grouping, derived PPL split. NO ranking algorithm yet.
 src/storage/      expo-file-system persistence (recording, session, weights, settings), export, import.
 src/ui/           screens + components; recorder.ts = recording lifecycle glue. App.tsx = route state machine.
 scripts/          Node CLIs: `npm run analyze -- file.json` (offline + live-session replay + HTML report), `npm run synth`.
@@ -39,6 +45,25 @@ recordings/       real recordings returned from the phone (raw data is precious:
   are stored separately. Never overwrite detector output with corrections.
 - Catalogue choices come from `src/catalogue/data.ts`; UI never hard-codes exercises or muscles.
 - Recall shown in the UI comes from `src/memory/` queries (pure, tested), never ad-hoc in components.
+
+## Product-design rules (see PRODUCT_DESIGN.md; do not drift)
+- Persistent context is remembered; the user only declares what changed. Never ask again for stable context
+  already known. Mature target: one action per exercise ("this is the exercise"), occasionally machine or load.
+  Any new mandatory choice or tap must justify itself against this *context-effort* goal.
+- The ontology holds facts only. Never encode objective/region-specific recommendations in it; ranking belongs
+  to a separate decision layer (not built). Never create per-objective or per-region exercise lists.
+- Objective (overall strategy) and body-region priority (scope reducer + preference signal) are separate
+  fields. A priority region is never a hard filter on eligible exercises.
+- BodyRegion → Exercise is for browsing and first-use scoping only, not the product hierarchy. Code paths that
+  start an exercise must not require a region (derive it from the exercise).
+- PPL is a derived planning structure; never ask the user to declare it.
+- The prescription records intent (default 3 sets, final set intended to failure). Never claim failure was
+  achieved from sensor data.
+- Workouts are implicit (formed by exercises done together); no mandatory "create/finish workout".
+- Suggestions are suggestions: plans stay editable (order, skip, replace, add).
+- Changing machine switches to that machine's history; no kg carried over as comparable.
+- Keep CONFIRMED decisions and OPEN questions distinct; do not turn an open question into a rule without the
+  founder's decision (list in PRODUCT_DESIGN.md §14).
 
 ## Product rules (memory layer)
 - Do not treat rep counting as the whole product; capture work must serve the memory.

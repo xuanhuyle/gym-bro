@@ -13,7 +13,7 @@ const P = (...ids: string[]): ExerciseMuscleContribution[] => ids.map((muscleId)
 const S = (...ids: string[]): ExerciseMuscleContribution[] => ids.map((muscleId) => ({ muscleId, role: 'secondary' as ContributionRole }));
 
 export const CATALOGUE: CatalogueData = {
-  version: 'cat-1',
+  version: 'cat-2',
   bodyRegions: [
     { id: 'chest', name: 'Chest' },
     { id: 'back', name: 'Back' },
@@ -62,19 +62,19 @@ export const CATALOGUE: CatalogueData = {
     { id: 'hip_abduction_machine', name: 'Hip abduction machine', hasWeightStack: true },
   ],
   exercises: [
-    { id: 'lat_pulldown', name: 'Lat Pulldown', movementPattern: 'Pull', bodyRegionIds: ['back'] },
-    { id: 'seated_row', name: 'Seated Row', movementPattern: 'Pull', bodyRegionIds: ['back'] },
-    { id: 'reverse_fly', name: 'Reverse Fly (rear delt)', movementPattern: 'Pull', bodyRegionIds: ['shoulders', 'back'] },
-    { id: 'biceps_curl', name: 'Biceps Curl', movementPattern: 'Pull', bodyRegionIds: ['arms'] },
-    { id: 'chest_press', name: 'Chest Press', movementPattern: 'Push', bodyRegionIds: ['chest'] },
-    { id: 'chest_fly', name: 'Chest Fly', movementPattern: 'Push', bodyRegionIds: ['chest'] },
-    { id: 'shoulder_press', name: 'Shoulder Press', movementPattern: 'Push', bodyRegionIds: ['shoulders'] },
-    { id: 'lateral_raise', name: 'Lateral Raise', movementPattern: 'Push', bodyRegionIds: ['shoulders'] },
-    { id: 'triceps_pushdown', name: 'Triceps Pushdown', movementPattern: 'Push', bodyRegionIds: ['arms'] },
-    { id: 'leg_press', name: 'Leg Press', movementPattern: 'Legs', bodyRegionIds: ['legs'] },
-    { id: 'leg_extension', name: 'Leg Extension', movementPattern: 'Legs', bodyRegionIds: ['legs'] },
-    { id: 'leg_curl', name: 'Leg Curl', movementPattern: 'Legs', bodyRegionIds: ['legs'] },
-    { id: 'hip_abduction', name: 'Hip Abduction', movementPattern: 'Legs', bodyRegionIds: ['legs'] },
+    { id: 'lat_pulldown', name: 'Lat Pulldown', split: 'Pull', movementPattern: 'vertical_pull', bodyRegionIds: ['back'] },
+    { id: 'seated_row', name: 'Seated Row', split: 'Pull', movementPattern: 'horizontal_pull', bodyRegionIds: ['back'] },
+    { id: 'reverse_fly', name: 'Reverse Fly (rear delt)', split: 'Pull', movementPattern: 'shoulder_horizontal_abduction', bodyRegionIds: ['shoulders', 'back'] },
+    { id: 'biceps_curl', name: 'Biceps Curl', split: 'Pull', movementPattern: 'elbow_flexion', bodyRegionIds: ['arms'] },
+    { id: 'chest_press', name: 'Chest Press', split: 'Push', movementPattern: 'horizontal_press', bodyRegionIds: ['chest'] },
+    { id: 'chest_fly', name: 'Chest Fly', split: 'Push', movementPattern: 'shoulder_horizontal_adduction', bodyRegionIds: ['chest'] },
+    { id: 'shoulder_press', name: 'Shoulder Press', split: 'Push', movementPattern: 'vertical_press', bodyRegionIds: ['shoulders'] },
+    { id: 'lateral_raise', name: 'Lateral Raise', split: 'Push', movementPattern: 'shoulder_abduction', bodyRegionIds: ['shoulders'] },
+    { id: 'triceps_pushdown', name: 'Triceps Pushdown', split: 'Push', movementPattern: 'elbow_extension', bodyRegionIds: ['arms'] },
+    { id: 'leg_press', name: 'Leg Press', split: 'Legs', movementPattern: 'squat', bodyRegionIds: ['legs'] },
+    { id: 'leg_extension', name: 'Leg Extension', split: 'Legs', movementPattern: 'knee_extension', bodyRegionIds: ['legs'] },
+    { id: 'leg_curl', name: 'Leg Curl', split: 'Legs', movementPattern: 'knee_flexion', bodyRegionIds: ['legs'] },
+    { id: 'hip_abduction', name: 'Hip Abduction', split: 'Legs', movementPattern: 'hip_abduction', bodyRegionIds: ['legs'] },
   ],
   variants: [
     // ---- Pull ----
