@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "app",
-    "slug": "app",
-    "version": "1.0.0",
+    "name": "Gym Bro Gate 0",
+    "slug": "gym-bro",
+    "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -22,7 +22,13 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "Gym Bro records the phone's motion while it is attached to a weight stack to count reps, sets and rest."
+        }
+      ]
     ]
   }
 }
